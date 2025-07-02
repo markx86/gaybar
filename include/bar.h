@@ -1,7 +1,7 @@
 #ifndef BAR_H_
 #define BAR_H_
 
-#include <types.h>
+#include "types.h"
 
 enum bar_position {
   BAR_POSITION_TOP,
@@ -48,7 +48,8 @@ u32               bar_get_thickness(void);
 
 struct zone* bar_alloc_zone(enum zone_position position, u32 size);
 void         bar_destroy_zone(struct zone** zonep);
-void         bar_redraw_zone(struct zone* zone);
-b8           bar_should_redraw_zone(struct zone* zone);
+
+void         zone_request_redraw(struct zone* zone);
+b8           zone_should_redraw(struct zone* zone);
 
 #endif

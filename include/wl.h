@@ -1,7 +1,7 @@
 #ifndef WL_H_
 #define WL_H_
 
-#include <types.h>
+#include "types.h"
 
 enum bar_position;
 struct zone;

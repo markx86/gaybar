@@ -1,10 +1,10 @@
-#include <bar.h>
-#include <log.h>
-#include <wl.h>
-#include <util.h>
-#include <list.h>
-#include <assert.h>
-#include <compiler.h>
+#include "bar.h"
+#include "log.h"
+#include "wl.h"
+#include "util.h"
+#include "list.h"
+#include "assert.h"
+#include "compiler.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -172,6 +172,7 @@ static void remove_output(struct output* output) {
 #define DESTROYUNSTABLE(x, v) \
   do { if (output->x != NULL) z##x##_v##v##_destroy(output->x); } while (0)
 
+  DESTROY(wl_callback);
   DESTROYUNSTABLE(wlr_layer_surface, 1);
   DESTROY(wl_surface);
   destroy_buffer(output);

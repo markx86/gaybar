@@ -1,7 +1,7 @@
 #ifndef ASSERT_H_
 #define ASSERT_H_
 
-#include <log.h>
+#include "log.h"
 
 /* extern strstr(..) function, to avoid including the entire string.h header */
 extern char* strstr(const char* haystack, const char* needle);

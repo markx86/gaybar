@@ -1,8 +1,7 @@
 #ifndef PARAMS_H_
 #define PARAMS_H_
 
-#include <log.h>
-#include <types.h>
+#include "log.h"
 
 struct params {
   enum log_level log_level;

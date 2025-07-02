@@ -1,10 +1,10 @@
-#include <bar.h>
-#include <wl.h>
-#include <log.h>
-#include <util.h>
-#include <list.h>
-#include <assert.h>
-#include <compiler.h>
+#include "bar.h"
+#include "wl.h"
+#include "log.h"
+#include "util.h"
+#include "list.h"
+#include "assert.h"
+#include "compiler.h"
 
 #include <stdlib.h>
 #include <time.h>
@@ -158,12 +158,12 @@ void bar_destroy_zone(struct zone** zonep) {
   *zonep = NULL;
 }
 
-void bar_redraw_zone(struct zone* zone) {
+void zone_request_redraw(struct zone* zone) {
   ASSERT(zone != NULL);
   ZONEPRIVATE(zone)->redraw = true;
 }
 
-b8 bar_should_redraw_zone(struct zone* zone) {
+b8 zone_should_redraw(struct zone* zone) {
   ASSERT(zone != NULL);
   return ZONEPRIVATE(zone)->redraw;
 }
