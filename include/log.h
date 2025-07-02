@@ -3,8 +3,6 @@
 
 /* extern abort(..) function, to avoid including the entire stdlib.h header */
 extern __attribute__((noreturn)) void abort();
-/* extern strstr(..) function, to avoid including the entire string.h header */
-extern char* strstr(const char* haystack, const char* needle);
 
 enum log_level {
   LOG_FATAL     = 0,
@@ -34,17 +32,5 @@ void _log(enum log_level level, const char* fmt, ...);
   _log(LOG_INFO, fmt "\n", ##__VA_ARGS__)
 #define log_trace(fmt, ...) \
   _log(LOG_TRACE, fmt "\n", ##__VA_ARGS__)
-
-#define _ROOT_ "src/"
-
-#define assert(x)                                              \
-  do {                                                         \
-    if (!(x)) {                                                \
-      const char* s = strstr(__FILE__, _ROOT_);                \
-      log_fatal("(%s:%d) assertion %s failed",                 \
-                s == NULL ? __FILE__ : s + sizeof(_ROOT_) - 1, \
-                __LINE__, #x);                                 \
-    }                                                          \
-  } while (0)
 
 #endif

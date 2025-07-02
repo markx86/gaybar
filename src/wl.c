@@ -1,6 +1,9 @@
 #include <bar.h>
 #include <log.h>
 #include <wl.h>
+#include <util.h>
+#include <list.h>
+#include <assert.h>
 #include <compiler.h>
 
 #include <stdio.h>
@@ -21,7 +24,7 @@
 STATICASSERT(sizeof(wchar_t) == sizeof(u32));
 
 struct output {
-  struct output *next, *prev;
+  struct list link;
   struct wl_output* wl_output;
   struct wl_surface* wl_surface;
   struct wl_callback* wl_callback;
@@ -41,43 +44,22 @@ struct output {
 };
 
 struct wl {
+  enum zwlr_layer_surface_v1_anchor anchor;
   struct wl_display* wl_display;
   struct wl_registry* wl_registry;
   struct wl_compositor* wl_compositor;
   struct wl_shm* wl_shm;
   struct zxdg_output_manager_v1* xdg_output_manager;
   struct zwlr_layer_shell_v1* wlr_layer_shell;
-  struct output* outputs;
-  i32 display_fd;
+  struct list outputs;
   u32 output_format;
   b8 init_done, can_draw;
 };
 
-struct bar {
-  enum zwlr_layer_surface_v1_anchor anchor;
-  u32 size;
-};
-
 struct wl wl = {0};
-struct bar bar = {0};
 static b8 should_close = false;
 
-#define FOREACHOUTPUT(x) \
-  for (struct output* x = wl.outputs; x != NULL; x = x->next)
-
 static void request_frame(struct output* output);
-
-static inline i32 min(i32 x, i32 y) {
-  return x < y ? x : y;
-}
-
-static inline i32 max(i32 x, i32 y) {
-  return x > y ? x : y;
-}
-
-static inline i32 clamp(i32 x, i32 m, i32 M) {
-  return min(max(m, x), M);
-}
 
 static inline char* output_name(struct output* output) {
   return output->name == NULL ? "UNK" : output->name;
@@ -85,7 +67,7 @@ static inline char* output_name(struct output* output) {
 
 static void wl_buffer_handle_release(void* data, struct wl_buffer* wl_buffer) {
   struct output* output = data;
-  assert(wl_buffer == output->wl_buffer);
+  ASSERT(wl_buffer == output->wl_buffer);
   log_trace("buffer released");
 }
 
@@ -171,15 +153,6 @@ static int recreate_buffer(struct output* output) {
   return 0;
 }
 
-static inline void unlink_output(struct output* output) {
-  if (output == wl.outputs)
-    wl.outputs = output->next;
-  if (output->next != NULL)
-    output->next->prev = output->prev;
-  if (output->prev != NULL)
-    output->prev->next = output->next;
-}
-
 static void free_output(struct output* output) {
   if (output->name != NULL)
     free(output->name);
@@ -189,10 +162,10 @@ static void free_output(struct output* output) {
 }
 
 static void remove_output(struct output* output) {
-  assert(output != NULL);
+  ASSERT(output != NULL);
   log_trace("removing output %s", output_name(output));
   /* Remove the output from the linked list */
-  unlink_output(output);
+  list_remove(&output->link);
   /* Free wayland objects */
 #define DESTROY(x) \
   do { if (output->x != NULL) x##_destroy(output->x); } while (0)
@@ -215,7 +188,7 @@ static void xdg_output_handle_name(void* data,
                                    struct zxdg_output_v1* xdg_output,
                                    const char* name) {
   struct output* output = data;
-  assert(xdg_output == output->xdg_output);
+  ASSERT(xdg_output == output->xdg_output);
   output->name = strdup(name);
 }
 
@@ -223,7 +196,7 @@ static void xdg_output_handle_description(void* data,
                                           struct zxdg_output_v1* xdg_output,
                                           const char* description) {
   struct output* output = data;
-  assert(xdg_output == output->xdg_output);
+  ASSERT(xdg_output == output->xdg_output);
   output->description = strdup(description);
 }
 
@@ -232,7 +205,7 @@ xdg_output_handle_logical_position(void* data,
                                    struct zxdg_output_v1* xdg_output,
                                    i32 x, i32 y) {
   struct output* output = data;
-  assert(xdg_output == output->xdg_output);
+  ASSERT(xdg_output == output->xdg_output);
   output->x = x;
   output->y = y;
 }
@@ -242,7 +215,7 @@ xdg_output_handle_logical_size(void* data,
                                struct zxdg_output_v1* xdg_output,
                                i32 width, i32 height) {
   struct output* output = data;
-  assert(xdg_output == output->xdg_output);
+  ASSERT(xdg_output == output->xdg_output);
   log_trace("got xdg output logical size (width = %d, height = %d)",
             width, height);
   output->width = width;
@@ -252,7 +225,7 @@ xdg_output_handle_logical_size(void* data,
 static void xdg_output_handle_done(void* data,
                                    struct zxdg_output_v1* xdg_output) {
   struct output* output = data;
-  assert(xdg_output == output->xdg_output);
+  ASSERT(xdg_output == output->xdg_output);
   log_trace("got done event for output %s", output_name(output));
 }
 
@@ -273,7 +246,7 @@ wlr_layer_surface_handle_configure(
                                 struct zwlr_layer_surface_v1* wlr_layer_surface,
                                 u32 serial, u32 width, u32 height) {
   struct output* output = data;
-  assert(wlr_layer_surface == output->wlr_layer_surface);
+  ASSERT(wlr_layer_surface == output->wlr_layer_surface);
   zwlr_layer_surface_v1_ack_configure(wlr_layer_surface, serial);
 
   if (output->surface_width == width && output->surface_height == height)
@@ -292,7 +265,7 @@ wlr_layer_surface_handle_closed(
                               void* data,
                               struct zwlr_layer_surface_v1* wlr_layer_surface) {
   struct output* output = data;
-  assert(wlr_layer_surface == output->wlr_layer_surface);
+  ASSERT(wlr_layer_surface == output->wlr_layer_surface);
   should_close = true;
 }
 
@@ -306,7 +279,7 @@ static void wl_callback_frame_handle_done(void* data,
                                           struct wl_callback* wl_callback,
                                           u32 timestamp) {
   struct output* output = data;
-  assert(wl_callback == output->wl_callback);
+  ASSERT(wl_callback == output->wl_callback);
   UNUSED(timestamp);
   /* Clear the callback */
   wl_callback_destroy(wl_callback);
@@ -320,7 +293,7 @@ static const struct wl_callback_listener wl_callback_frame_listener = {
 };
 
 static void request_frame(struct output* output) {
-  assert(output->wl_callback == NULL);
+  ASSERT(output->wl_callback == NULL);
   /* Create the frame callback for the surface */
   output->wl_callback = wl_surface_frame(output->wl_surface);
   wl_callback_add_listener(output->wl_callback, &wl_callback_frame_listener,
@@ -332,6 +305,7 @@ static void request_frame(struct output* output) {
 
 static void init_output(struct output* output) {
   u32 initial_width, initial_height;
+  u32 bar_thickness = bar_get_thickness();
 
   /* Create xdg output */
   output->xdg_output =
@@ -347,19 +321,16 @@ static void init_output(struct output* output) {
   }
 
   /* Compute bar size */
-  switch (bar.anchor) {
-    case ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP:
-    case ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM:
-      assert(bar.size < output->height);
-      initial_width = output->width;
-      initial_height = bar.size;
-      break;
-    case ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT:
-    case ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT:
-      assert(bar.size < output->width);
-      initial_width = bar.size;
-      initial_height = output->height;
-      break;
+  /* NOTE: Here we are assuming the bar is in an horizontal position
+   *       (i.e. anchored to the top or bottom of the screen). If we ever want
+   *       to support vertical bars (anchored to the left or right of the
+   *       screen), we will need to check whether the bar is vertical or
+   *       horizonal and compute the surface width and height accordingly.
+   */
+  {
+    ASSERT(bar_thickness < output->height);
+    initial_width = output->width;
+    initial_height = bar_thickness;
   }
 
   /* Create surface */
@@ -382,27 +353,22 @@ static void init_output(struct output* output) {
                                      output);
 
   /* Set wlr layer surface position, anchor, margin and exclusive zone */
-  zwlr_layer_surface_v1_set_anchor(output->wlr_layer_surface, bar.anchor);
+  zwlr_layer_surface_v1_set_anchor(output->wlr_layer_surface, wl.anchor);
   zwlr_layer_surface_v1_set_size(output->wlr_layer_surface,
                                  initial_width, initial_height);
   zwlr_layer_surface_v1_set_margin(output->wlr_layer_surface, 0, 0, 0, 0);
-  zwlr_layer_surface_v1_set_exclusive_zone(output->wlr_layer_surface, bar.size);
+  zwlr_layer_surface_v1_set_exclusive_zone(output->wlr_layer_surface,
+                                           bar_thickness);
 
   request_frame(output);
 }
 
 static void register_output(struct wl_output* wl_output, u32 name) {
-  struct output* output = calloc(sizeof(*output), 1);
-  assert(output != NULL);
+  struct output* output = zalloc(sizeof(*output));
+  ASSERT(output != NULL);
 
   /* Add the output to the linked list */
-  if (wl.outputs == NULL)
-    wl.outputs = output;
-  else {
-    wl.outputs->prev = output;
-    output->next = wl.outputs;
-    wl.outputs = output;
-  }
+  list_insert(&wl.outputs, &output->link);
 
   output->wl_output = wl_output;
   output->id = name;
@@ -412,7 +378,7 @@ static void register_output(struct wl_output* wl_output, u32 name) {
 }
 
 static void wl_shm_handle_format(void* _, struct wl_shm* wl_shm, u32 format) {
-  assert(wl_shm == wl.wl_shm);
+  ASSERT(wl_shm == wl.wl_shm);
   switch (format) {
     case WL_SHM_FORMAT_ARGB8888:
     case WL_SHM_FORMAT_XRGB8888:
@@ -432,7 +398,7 @@ static void wl_registry_handle_global(void* _, struct wl_registry* wl_registry,
                                       u32 version) {
   struct wl_output* wl_output;
 
-  assert(wl_registry == wl.wl_registry);
+  ASSERT(wl_registry == wl.wl_registry);
   log_trace("got interface %s (name: %u, version: %u)",
             interface, name, version);
 
@@ -466,11 +432,13 @@ static void wl_registry_handle_global(void* _, struct wl_registry* wl_registry,
 static void wl_registry_handle_global_remove(void* _,
                                              struct wl_registry* wl_registry,
                                              u32 name) {
-  assert(wl_registry == wl.wl_registry);
+  struct output* output;
+
+  ASSERT(wl_registry == wl.wl_registry);
   log_trace("got global remove event (name: %u)", name);
 
   /* Check if remove event refers to an output */
-  FOREACHOUTPUT(output) {
+  list_for_each(output, &wl.outputs, link) {
     if (output->id == name) {
       remove_output(output);
       return;
@@ -500,7 +468,7 @@ position_to_anchor(enum bar_position position) {
 }
 
 static void int_handler(int signo) {
-  assert(signo == SIGINT);
+  ASSERT(signo == SIGINT);
   should_close = true;
 }
 
@@ -509,7 +477,7 @@ static void set_int_handler(void) {
   sigact.sa_flags = SA_RESTART;
   sigact.sa_handler = &int_handler;
   sigemptyset(&sigact.sa_mask);
-  assert(sigaction(SIGINT, &sigact, NULL) == 0);
+  ASSERT(sigaction(SIGINT, &sigact, NULL) == 0);
 }
 
 static void restore_int_handler(void) {
@@ -517,21 +485,20 @@ static void restore_int_handler(void) {
   sigact.sa_flags = 0;
   sigact.sa_handler = SIG_DFL;
   sigemptyset(&sigact.sa_mask);
-  assert(sigaction(SIGINT, &sigact, NULL) == 0);
+  ASSERT(sigaction(SIGINT, &sigact, NULL) == 0);
 }
 
-int wl_init(enum bar_position position, u32 size) {
+int wl_init(void) {
   struct output *output, *next_output;
 
   set_int_handler();
 
-  bar.anchor = position_to_anchor(position);
-  bar.size = size;
+  wl.anchor = position_to_anchor(bar_get_position());
 
   /* Set invalid output format */
   wl.output_format = -1;
-  /* Reset post_init flag */
-  wl.init_done = false;
+  /* Initialize output list */
+  list_init(&wl.outputs);
 
   wl.wl_display = wl_display_connect(NULL);
   if (wl.wl_display == NULL) {
@@ -570,7 +537,7 @@ int wl_init(enum bar_position position, u32 size) {
   CHECKUNSTABLE(wlr_layer_shell, 1);
   CHECKUNSTABLE(xdg_output_manager, 1);
 
-  if (wl.outputs == NULL) {
+  if (list_empty(&wl.outputs)) {
     log_error("could not detect any screen");
     return -1;
   }
@@ -589,8 +556,10 @@ int wl_init(enum bar_position position, u32 size) {
   }
 
   /* Initialize all remaining non-initialized outputs */
-  for (output = wl.outputs; output != NULL; output = next_output) {
-    next_output = output->next;
+  list_for_each_safe(output, next_output, &wl.outputs, link) {
+    log_trace("initializing output %s (id: %u)",
+              output_name(output), output->id);
+    next_output = CONTAINEROF(output->link.next, struct output, link);
     if (output->xdg_output == NULL)
       init_output(output);
   }
@@ -599,15 +568,13 @@ int wl_init(enum bar_position position, u32 size) {
   /* Do one more roundtrip to finish initialization */
   wl_display_roundtrip(wl.wl_display);
 
-  wl.display_fd = wl_display_get_fd(wl.wl_display);
-
   return 0;
 }
 
 int wl_should_close(void) {
   int rc;
   struct pollfd pfd = {
-    .fd = wl.display_fd,
+    .fd = wl_display_get_fd(wl.wl_display),
     .events = POLLIN
   };
 
@@ -623,7 +590,7 @@ int wl_should_close(void) {
     goto out;
   /* Check for events */
   else if (pfd.revents & POLLIN) {
-    assert(wl_display_prepare_read(wl.wl_display) == 0);
+    ASSERT(wl_display_prepare_read(wl.wl_display) == 0);
     wl_display_read_events(wl.wl_display);
 
     /* Dispatch events */
@@ -640,11 +607,12 @@ out:
 }
 
 b8 wl_draw_begin(void) {
-  FOREACHOUTPUT(output) {
+  struct output* output;
+  list_for_each(output, &wl.outputs, link) {
     if (!output->frame_done)
       return false;
   }
-  FOREACHOUTPUT(output) {
+  list_for_each(output, &wl.outputs, link) {
     if (output->wl_surface == NULL || output->wl_buffer == NULL) {
       log_warn("output %s (id: %u) has not been initialized",
                output_name(output), output->id);
@@ -656,7 +624,8 @@ b8 wl_draw_begin(void) {
 }
 
 void wl_draw_end(void) {
-  FOREACHOUTPUT(output) {
+  struct output* output;
+  list_for_each(output, &wl.outputs, link) {
     if (output->wl_surface != NULL)
       request_frame(output);
   }
@@ -666,11 +635,10 @@ void wl_cleanup(void) {
   struct output *output, *next_output;
 
   /* Destroy all outputs */
-  for (output = wl.outputs; output != NULL; output = next_output) {
-    next_output = output->next;
+  list_for_each_safe(output, next_output, &wl.outputs, link) {
+    next_output = CONTAINEROF(output->link.next, struct output, link);
     remove_output(output);
   }
-  wl.outputs = NULL;
 
 #define DESTROY(x) \
   do { if (wl.x != NULL) x##_destroy(wl.x); } while (0)
@@ -714,68 +682,65 @@ static void fill_buffer_region(u32 src_x, u32 src_y,
   }
 }
 
-void wl_draw_element(f32 x, f32 y, u32 width, u32 height, void* data) {
-  i32 output_x, output_y;
-  u32 data_x, data_y;
-  u32 start_x, start_y;
-  u32 end_x, end_y;
-  u32 draw_width, draw_height;
+static inline i32 get_offset(struct output* output, struct zone* zone,
+                             u32 offset, u32 position_width) {
+  switch (zone->position) {
+    case ZONE_POSITION_LEFT:
+      return offset;
+    case ZONE_POSITION_CENTER:
+      return ((output->surface_width - position_width) >> 1) + offset;
+    case ZONE_POSITION_RIGHT:
+      return output->surface_width - offset - zone->width;
+    default:
+      log_fatal("invalid zone position %d", zone->position);
+  }
+}
 
-  if (x < -1.0f || x > 1.0f)
-    log_warn("suspicious draw x value: %.2f "
-             "(should between [-1.0f, +1.0f])", x);
-  if (y < -1.0f || y > 1.0f)
-    log_warn("suspicious draw y value: %.2f "
-             "(should between [-1.0f, +1.0f])", y);
+void wl_draw_zone(struct zone* zone, u32 offset, u32 position_width) {
+  struct output* output;
+  i32 start_x, end_x;
+  const i32 start_y = 0, end_y = zone->height;
 
-  /* Both x and y are between [-1.0f, +1.0f], so we convert them be
-   * between [0.0f, 1.0f].
-   */
-  x = (x + 1.0f) * 0.5f;
-  y = (y + 1.0f) * 0.5f;
-
-  FOREACHOUTPUT(output) {
+  list_for_each(output, &wl.outputs, link) {
     if (output->buffer == NULL) {
       log_warn("output %s (id: %u) has buffer == NULL",
                output_name(output), output->id);
       continue;
     }
 
-    output_x = output->surface_width * x - (width >> 1);
-    data_x   = output_x < 0 ? -output_x : 0;
-    start_x  = clamp(output_x, 0, output->surface_width);
-    end_x    = clamp(output_x + width, 0, output->surface_width);
-    assert(start_x <= end_x);
+    /* NOTE: The following code only works for horizontal bars.
+     *       If we want to support vertical bars, we're going to have to
+     *       adapt this.
+     */
 
-    output_y = output->surface_height * y - (height >> 1);
-    data_y   = output_y < 0 ? -output_y : 0;
-    start_y  = clamp(output_y, 0, output->surface_height);
-    end_y    = clamp(output_y + height, 0, output->surface_height);
-    assert(start_y <= end_y);
+    start_x = get_offset(output, zone, offset, position_width);
+    ASSERT(start_x >= 0);
+    ASSERT(start_x <= (i32)(output->surface_width - zone->width));
 
-    draw_width  = end_x - start_x;
-    draw_height = end_y - start_y;
+    end_x = start_x + zone->width;
+    ASSERT(end_x >= (i32)zone->width);
+    ASSERT(end_x <= (i32)output->surface_width);
 
-    /* Nothing to draw, continue to the next monitor */
-    if (draw_height == 0 || draw_width == 0) {
-      log_warn("nothing to draw on output %s (id: %u)",
-               output_name(output), output->id);
-      continue;
-    }
+    ASSERT(end_x > start_x);
+    ASSERT(end_y > start_y);
 
-    fill_buffer_region(data_x, data_y, start_x, start_y,
-                       draw_width, draw_height,
-                       data, width,
+    ASSERT((u32)(end_x - start_x) == zone->width);
+    ASSERT((u32)(end_y - start_y) == zone->height);
+
+    fill_buffer_region(0, 0, start_x, start_y,
+                       zone->width, zone->height,
+                       zone->image_buffer, zone->width,
                        output->buffer, output->surface_width);
 
     wl_surface_damage_buffer(output->wl_surface,
                              start_x, start_y,
-                             draw_width, draw_height);
+                             zone->width, zone->height);
   }
 }
 
 void wl_clear(u32 color) {
-  FOREACHOUTPUT(output) {
+  struct output* output;
+  list_for_each(output, &wl.outputs, link) {
     if (output->buffer == NULL) {
       log_warn("output %s (id: %u) has buffer == NULL",
                output_name(output), output->id);
@@ -783,6 +748,7 @@ void wl_clear(u32 color) {
     }
     /* Use wmemset(..) for semplicity */
     wmemset((int*)output->buffer, color, output->buffer_size >> 2);
-    wl_surface_damage_buffer(output->wl_surface, 0, 0, output->surface_width, output->surface_height);
+    wl_surface_damage_buffer(output->wl_surface, 0, 0,
+                             output->surface_width, output->surface_height);
   }
 }

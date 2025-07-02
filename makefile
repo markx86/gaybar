@@ -19,9 +19,16 @@ endif
 
 CFLAGS = \
 	$(COMFLAGS) \
-	-I include/ \
+	-I include/
+
+ifneq ($(RELEASE),)
+# FIXME: Maybe use _FORTIFY_SOURCE level 3?
+CFLAGS += \
 	-fPIE \
-	-fstack-protector-all
+	-fstack-protector-all \
+	-fsafe-stack \
+	-D _FORTIFY_SOURCE=2
+endif
 
 LIBS = -lwayland-client
 
