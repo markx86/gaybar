@@ -30,7 +30,11 @@ CFLAGS += \
 	-D _FORTIFY_SOURCE=2
 endif
 
-LIBS = -lwayland-client
+LIBS =
+ifeq ($(RELEASE),)
+LIBS += -lasan
+endif
+LIBS += -lwayland-client
 
 SRCS = $(shell find $(SRCDIR)/ -name '*.c' -type f)
 OBJS = $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
