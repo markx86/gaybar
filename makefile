@@ -1,6 +1,11 @@
 SRCDIR	 = $(abspath src)
 BUILDDIR = $(abspath build)
 
+define pkg-config
+	$(eval CFLAGS += $(shell pkg-config --cflags $(1)))
+	$(eval LDFLAGS += $(shell pkg-config --libs $(1)))
+endef
+
 TARGET = build/gaybar
 
 CC = clang
@@ -10,11 +15,24 @@ ifeq ($(RELEASE),)
 COMFLAGS += -ggdb
 else
 COMFLAGS += -O3
+ifeq ($(NO_SHSTK),)
+COMFLAGS += -mshstk
+else
+COMFLAGS += -fsanitize=safe-stack
+endif
+ifeq ($(NO_CET),)
+COMFLAGS += -fcf-protection=full
+endif
 endif
 
 LDFLAGS = $(COMFLAGS)
 ifneq ($(RELEASE),)
-LDFLAGS += -Wl,-z,relro,-z,now -pie
+LDFLAGS += \
+	-Wl,-z,relro,-z,now,-z,noexecstack \
+	-flto \
+	-pie
+else
+LDFLAGS += -lasan
 endif
 
 CFLAGS = \
@@ -26,22 +44,19 @@ ifneq ($(RELEASE),)
 CFLAGS += \
 	-fPIE \
 	-fstack-protector-all \
-	-fsafe-stack \
-	-D _FORTIFY_SOURCE=2
+	-D_FORTIFY_SOURCE=2
 endif
 
-LIBS =
-ifeq ($(RELEASE),)
-LIBS += -lasan
-endif
-LIBS += -lwayland-client
+LIBS = wayland-client freetype2
+
+$(foreach lib,$(LIBS),$(call pkg-config, $(lib)))
 
 SRCS = $(shell find $(SRCDIR)/ -name '*.c' -type f)
 OBJS = $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 
 $(TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $^
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
