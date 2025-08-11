@@ -1,5 +1,6 @@
 #include <gaybar/log.h>
 #include <gaybar/params.h>
+#include <gaybar/types.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -8,8 +9,8 @@
 #include <unistd.h>
 #include <time.h>
 
-static FILE* log_file;
-static int use_stderr;
+static FILE* g_log_file;
+static b8 g_use_stderr;
 
 static void set_log_level(void) {
   char *env, *endptr;
@@ -39,10 +40,10 @@ static FILE* open_log_file(const char* path) {
 void log_init(void) {
   set_log_level();
   {
-    use_stderr = isatty(STDERR_FILENO);
+    g_use_stderr = isatty(STDERR_FILENO);
     setvbuf(stderr, NULL, _IONBF, 0);
   }
-  log_file = open_log_file(g_params.log_file);
+  g_log_file = open_log_file(g_params.log_file);
 }
 
 /* Generate log preamble: '[YYYY-MM-DD hh:mm:ss] [XXXXX]' */
@@ -76,16 +77,16 @@ void _log(enum log_level level, const char *fmt, ...) {
   pre_len = gen_preamble(level, pre, sizeof(pre));
 
   /* Print to stderr */
-  if (use_stderr) {
+  if (g_use_stderr) {
     fwrite(pre, pre_len, 1, stderr);
     vfprintf(stderr, fmt, ap_stderr);
   }
   va_end(ap_stderr);
 
   /* Print to log file */
-  if (log_file != NULL) {
-    fwrite(pre, pre_len, 1, log_file);
-    vfprintf(log_file, fmt, ap_file);
+  if (g_log_file != NULL) {
+    fwrite(pre, pre_len, 1, g_log_file);
+    vfprintf(g_log_file, fmt, ap_file);
   }
   va_end(ap_file);
 }

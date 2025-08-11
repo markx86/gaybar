@@ -56,8 +56,8 @@ struct wl {
   b8 init_done, can_draw;
 };
 
-struct wl wl = {0};
-static b8 should_close = false;
+struct wl g_wl = {0};
+static b8 g_should_close = false;
 
 static void request_frame(struct output* output);
 
@@ -71,7 +71,7 @@ static void wl_buffer_handle_release(void* data, struct wl_buffer* wl_buffer) {
   log_trace("buffer released");
 }
 
-static const struct wl_buffer_listener wl_buffer_listener = {
+static const struct wl_buffer_listener g_wl_buffer_listener = {
   .release = wl_buffer_handle_release
 };
 
@@ -103,14 +103,14 @@ static int create_buffer(struct output* output) {
   output->buffer_size = size;
   output->buffer_stride = stride;
 
-  wl_shm_pool = wl_shm_create_pool(wl.wl_shm, fd, size);
+  wl_shm_pool = wl_shm_create_pool(g_wl.wl_shm, fd, size);
   output->wl_buffer = wl_shm_pool_create_buffer(wl_shm_pool, 0,
                                                 output->surface_width,
                                                 output->surface_height,
-                                                stride, wl.output_format);
+                                                stride, g_wl.output_format);
   wl_shm_pool_destroy(wl_shm_pool);
 
-  wl_buffer_add_listener(output->wl_buffer, &wl_buffer_listener, output);
+  wl_buffer_add_listener(output->wl_buffer, &g_wl_buffer_listener, output);
   rc = 0;
 fail:
   if (fd >= 0)
@@ -131,7 +131,7 @@ static void destroy_buffer(struct output* output) {
 
 static inline void acquire_buffer(struct output* output) {
   while (!output->frame_done)
-    wl_display_roundtrip(wl.wl_display);
+    wl_display_roundtrip(g_wl.wl_display);
 }
 
 static int recreate_buffer(struct output* output) {
@@ -230,7 +230,7 @@ static void xdg_output_handle_done(void* data,
   log_trace("got done event for output %s", output_name(output));
 }
 
-static const struct zxdg_output_v1_listener xdg_output_listener = {
+static const struct zxdg_output_v1_listener g_xdg_output_listener = {
   /* FIXME: xdg_output.name and xdg_output.description events are
    *        deprecated. We should use the wl_output's equivalents.
    */
@@ -267,10 +267,10 @@ wlr_layer_surface_handle_closed(
                               struct zwlr_layer_surface_v1* wlr_layer_surface) {
   struct output* output = data;
   ASSERT(wlr_layer_surface == output->wlr_layer_surface);
-  should_close = true;
+  g_should_close = true;
 }
 
-static const struct zwlr_layer_surface_v1_listener wlr_layer_surface_listener =
+static const struct zwlr_layer_surface_v1_listener g_wlr_layer_surface_listener=
 {
   .closed = wlr_layer_surface_handle_closed,
   .configure = wlr_layer_surface_handle_configure
@@ -289,7 +289,7 @@ static void wl_callback_frame_handle_done(void* data,
   output->frame_done = true;
 }
 
-static const struct wl_callback_listener wl_callback_frame_listener = {
+static const struct wl_callback_listener g_wl_callback_frame_listener = {
   .done = wl_callback_frame_handle_done
 };
 
@@ -297,7 +297,7 @@ static void request_frame(struct output* output) {
   ASSERT(output->wl_callback == NULL);
   /* Create the frame callback for the surface */
   output->wl_callback = wl_surface_frame(output->wl_surface);
-  wl_callback_add_listener(output->wl_callback, &wl_callback_frame_listener,
+  wl_callback_add_listener(output->wl_callback, &g_wl_callback_frame_listener,
                            output);
   wl_surface_commit(output->wl_surface);
   /* When a frame has been requested, we can't draw */
@@ -310,19 +310,21 @@ static void init_output(struct output* output) {
 
   /* Create xdg output */
   output->xdg_output =
-    zxdg_output_manager_v1_get_xdg_output(wl.xdg_output_manager,
+    zxdg_output_manager_v1_get_xdg_output(g_wl.xdg_output_manager,
                                           output->wl_output);
-  zxdg_output_v1_add_listener(output->xdg_output, &xdg_output_listener, output);
+  zxdg_output_v1_add_listener(output->xdg_output, &g_xdg_output_listener,
+                              output);
 
   /* Roundtrip to get output witdth and output height */
-  wl_display_roundtrip(wl.wl_display);
+  wl_display_roundtrip(g_wl.wl_display);
   if (output->width == 0 || output->height == 0) {
     remove_output(output);
     return;
   }
 
-  /* Compute bar size */
-  /* NOTE: Here we are assuming the bar is in an horizontal position
+  /* Compute bar size
+   *
+   * NOTE: Here we are assuming the bar is in an horizontal position
    *       (i.e. anchored to the top or bottom of the screen). If we ever want
    *       to support vertical bars (anchored to the left or right of the
    *       screen), we will need to check whether the bar is vertical or
@@ -335,11 +337,11 @@ static void init_output(struct output* output) {
   }
 
   /* Create surface */
-  output->wl_surface = wl_compositor_create_surface(wl.wl_compositor);
+  output->wl_surface = wl_compositor_create_surface(g_wl.wl_compositor);
 
   /* Create wlr layer surface */
   output->wlr_layer_surface =
-    zwlr_layer_shell_v1_get_layer_surface(wl.wlr_layer_shell,
+    zwlr_layer_shell_v1_get_layer_surface(g_wl.wlr_layer_shell,
                                           output->wl_surface,
                                           output->wl_output,
                                           /* NOTE: We use the background
@@ -350,11 +352,11 @@ static void init_output(struct output* output) {
                                           ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND,
                                           "gaybar");
   zwlr_layer_surface_v1_add_listener(output->wlr_layer_surface,
-                                     &wlr_layer_surface_listener,
+                                     &g_wlr_layer_surface_listener,
                                      output);
 
   /* Set wlr layer surface position, anchor, margin and exclusive zone */
-  zwlr_layer_surface_v1_set_anchor(output->wlr_layer_surface, wl.anchor);
+  zwlr_layer_surface_v1_set_anchor(output->wlr_layer_surface, g_wl.anchor);
   zwlr_layer_surface_v1_set_size(output->wlr_layer_surface,
                                  initial_width, initial_height);
   zwlr_layer_surface_v1_set_margin(output->wlr_layer_surface, 0, 0, 0, 0);
@@ -369,28 +371,28 @@ static void register_output(struct wl_output* wl_output, u32 name) {
   ASSERT(output != NULL);
 
   /* Add the output to the linked list */
-  list_insert(&wl.outputs, &output->link);
+  list_insert(&g_wl.outputs, &output->link);
 
   output->wl_output = wl_output;
   output->id = name;
 
-  if (wl.init_done)
+  if (g_wl.init_done)
     init_output(output);
 }
 
 static void wl_shm_handle_format(void* _, struct wl_shm* wl_shm, u32 format) {
-  ASSERT(wl_shm == wl.wl_shm);
+  ASSERT(wl_shm == g_wl.wl_shm);
   switch (format) {
     case WL_SHM_FORMAT_ARGB8888:
     case WL_SHM_FORMAT_XRGB8888:
-      wl.output_format = format;
+      g_wl.output_format = format;
       break;
     default:
       break;
   }
 }
 
-static const struct wl_shm_listener wl_shm_listener = {
+static const struct wl_shm_listener g_wl_shm_listener = {
   .format = wl_shm_handle_format
 };
 
@@ -399,33 +401,34 @@ static void wl_registry_handle_global(void* _, struct wl_registry* wl_registry,
                                       u32 version) {
   struct wl_output* wl_output;
 
-  ASSERT(wl_registry == wl.wl_registry);
+  ASSERT(wl_registry == g_wl.wl_registry);
   log_trace("got interface %s (name: %u, version: %u)",
             interface, name, version);
 
   /* wl_compositor */
   if (!strcmp(interface, wl_compositor_interface.name))
-    wl.wl_compositor = wl_registry_bind(wl_registry, name,
-                                         &wl_compositor_interface, version);
+    g_wl.wl_compositor =
+      wl_registry_bind(wl_registry, name, &wl_compositor_interface, version);
   /* xdg_output_manager */
   else if (!strcmp(interface, zxdg_output_manager_v1_interface.name))
-    wl.xdg_output_manager =
+    g_wl.xdg_output_manager =
       wl_registry_bind(wl_registry, name, &zxdg_output_manager_v1_interface,
                        version);
   /* wlr_layer_shell */
   else if (!strcmp(interface, zwlr_layer_shell_v1_interface.name))
-    wl.wlr_layer_shell = wl_registry_bind(wl_registry, name,
-                                           &zwlr_layer_shell_v1_interface,
-                                           version);
+    g_wl.wlr_layer_shell =
+      wl_registry_bind(wl_registry, name, &zwlr_layer_shell_v1_interface,
+                       version);
   /* wl_shm */
   else if (!strcmp(interface, wl_shm_interface.name)) {
-    wl.wl_shm = wl_registry_bind(wl_registry, name, &wl_shm_interface, version);
-    wl_shm_add_listener(wl.wl_shm, &wl_shm_listener, NULL);
+    g_wl.wl_shm =
+      wl_registry_bind(wl_registry, name, &wl_shm_interface, version);
+    wl_shm_add_listener(g_wl.wl_shm, &g_wl_shm_listener, NULL);
   }
   /* wl_output */
   else if (!strcmp(interface, wl_output_interface.name)) {
-    wl_output = wl_registry_bind(wl_registry, name, &wl_output_interface,
-                                 version);
+    wl_output =
+      wl_registry_bind(wl_registry, name, &wl_output_interface, version);
     register_output(wl_output, name);
   }
 }
@@ -435,11 +438,11 @@ static void wl_registry_handle_global_remove(void* _,
                                              u32 name) {
   struct output* output;
 
-  ASSERT(wl_registry == wl.wl_registry);
+  ASSERT(wl_registry == g_wl.wl_registry);
   log_trace("got global remove event (name: %u)", name);
 
   /* Check if remove event refers to an output */
-  list_for_each(output, &wl.outputs, link) {
+  list_for_each(output, &g_wl.outputs, link) {
     if (output->id == name) {
       remove_output(output);
       return;
@@ -447,7 +450,7 @@ static void wl_registry_handle_global_remove(void* _,
   }
 }
 
-static const struct wl_registry_listener wl_registry_listener = {
+static const struct wl_registry_listener g_wl_registry_listener = {
   .global = wl_registry_handle_global,
   .global_remove = wl_registry_handle_global_remove
 };
@@ -470,7 +473,7 @@ position_to_anchor(enum bar_position position) {
 
 static void int_handler(int signo) {
   ASSERT(signo == SIGINT);
-  should_close = true;
+  g_should_close = true;
 }
 
 static void set_int_handler(void) {
@@ -494,40 +497,40 @@ int wl_init(void) {
 
   set_int_handler();
 
-  wl.anchor = position_to_anchor(bar_get_position());
+  g_wl.anchor = position_to_anchor(bar_get_position());
 
   /* Set invalid output format */
-  wl.output_format = -1;
+  g_wl.output_format = -1;
   /* Initialize output list */
-  list_init(&wl.outputs);
+  list_init(&g_wl.outputs);
 
-  wl.wl_display = wl_display_connect(NULL);
-  if (wl.wl_display == NULL) {
+  g_wl.wl_display = wl_display_connect(NULL);
+  if (g_wl.wl_display == NULL) {
     log_error("could not connect to wayland display");
     return -1;
   }
   log_trace("connected to wayland display");
 
-  wl.wl_registry = wl_display_get_registry(wl.wl_display);
-  if (wl.wl_registry == NULL) {
+  g_wl.wl_registry = wl_display_get_registry(g_wl.wl_display);
+  if (g_wl.wl_registry == NULL) {
     log_error("could not get display registry");
     return -1;
   }
   log_trace("got display registry");
 
-  wl_registry_add_listener(wl.wl_registry, &wl_registry_listener, NULL);
-  wl_display_roundtrip(wl.wl_display);
+  wl_registry_add_listener(g_wl.wl_registry, &g_wl_registry_listener, NULL);
+  wl_display_roundtrip(g_wl.wl_display);
 
 #define CHECK(x)                                                   \
   do {                                                             \
-    if (wl.x == NULL) {                                            \
+    if (g_wl.x == NULL) {                                          \
       log_error("could not get %s interface", x##_interface.name); \
       return -1;                                                   \
     }                                                              \
   } while (0)
 #define CHECKUNSTABLE(x, v)                                                  \
   do {                                                                       \
-    if (wl.x == NULL) {                                                      \
+    if (g_wl.x == NULL) {                                                    \
       log_error("could not get %s interface", z##x##_v##v##_interface.name); \
       return -1;                                                             \
     }                                                                        \
@@ -538,7 +541,7 @@ int wl_init(void) {
   CHECKUNSTABLE(wlr_layer_shell, 1);
   CHECKUNSTABLE(xdg_output_manager, 1);
 
-  if (list_empty(&wl.outputs)) {
+  if (list_empty(&g_wl.outputs)) {
     log_error("could not detect any screen");
     return -1;
   }
@@ -548,16 +551,16 @@ int wl_init(void) {
 #undef CHECK
 
   /* Find output format if we still don't have one */
-  if (wl.output_format == (u32)-1) {
-    wl_display_roundtrip(wl.wl_display);
-    if (wl.output_format == (u32)-1) {
+  if (g_wl.output_format == (u32)-1) {
+    wl_display_roundtrip(g_wl.wl_display);
+    if (g_wl.output_format == (u32)-1) {
       log_error("could not find a valid shm format");
       return -1;
     }
   }
 
   /* Initialize all remaining non-initialized outputs */
-  list_for_each_safe(output, next_output, &wl.outputs, link) {
+  list_for_each_safe(output, next_output, &g_wl.outputs, link) {
     log_trace("initializing output %s (id: %u)",
               output_name(output), output->id);
     next_output = CONTAINEROF(output->link.next, struct output, link);
@@ -565,9 +568,9 @@ int wl_init(void) {
       init_output(output);
   }
 
-  wl.init_done = true;
+  g_wl.init_done = true;
   /* Do one more roundtrip to finish initialization */
-  wl_display_roundtrip(wl.wl_display);
+  wl_display_roundtrip(g_wl.wl_display);
 
   return 0;
 }
@@ -575,45 +578,45 @@ int wl_init(void) {
 int wl_should_close(void) {
   int rc;
   struct pollfd pfd = {
-    .fd = wl_display_get_fd(wl.wl_display),
+    .fd = wl_display_get_fd(g_wl.wl_display),
     .events = POLLIN
   };
 
   /* Send all buffered requests to the compositor */
-  wl_display_flush(wl.wl_display);
+  wl_display_flush(g_wl.wl_display);
 
   /* Poll for events from the compositor */
   rc = poll(&pfd, 1, 0);
   /* Check for errors */
-  should_close |= rc < 0 && errno != EINTR;
-  should_close |= (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;
-  if (should_close)
+  g_should_close |= rc < 0 && errno != EINTR;
+  g_should_close |= (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;
+  if (g_should_close)
     goto out;
   /* Check for events */
   else if (pfd.revents & POLLIN) {
-    ASSERT(wl_display_prepare_read(wl.wl_display) == 0);
-    wl_display_read_events(wl.wl_display);
+    ASSERT(wl_display_prepare_read(g_wl.wl_display) == 0);
+    wl_display_read_events(g_wl.wl_display);
 
     /* Dispatch events */
-    while (!should_close) {
-      rc = wl_display_dispatch_pending(wl.wl_display);
+    while (!g_should_close) {
+      rc = wl_display_dispatch_pending(g_wl.wl_display);
       if (rc == 0)
         break;
-      should_close |= rc < 0;
+      g_should_close |= rc < 0;
     }
   }
 
 out:
-  return should_close;
+  return g_should_close;
 }
 
 b8 wl_draw_begin(void) {
   struct output* output;
-  list_for_each(output, &wl.outputs, link) {
+  list_for_each(output, &g_wl.outputs, link) {
     if (!output->frame_done)
       return false;
   }
-  list_for_each(output, &wl.outputs, link) {
+  list_for_each(output, &g_wl.outputs, link) {
     if (output->wl_surface == NULL || output->wl_buffer == NULL) {
       log_warn("output %s (id: %u) has not been initialized",
                output_name(output), output->id);
@@ -626,7 +629,7 @@ b8 wl_draw_begin(void) {
 
 void wl_draw_end(void) {
   struct output* output;
-  list_for_each(output, &wl.outputs, link) {
+  list_for_each(output, &g_wl.outputs, link) {
     if (output->wl_surface != NULL)
       request_frame(output);
   }
@@ -636,15 +639,15 @@ void wl_cleanup(void) {
   struct output *output, *next_output;
 
   /* Destroy all outputs */
-  list_for_each_safe(output, next_output, &wl.outputs, link) {
+  list_for_each_safe(output, next_output, &g_wl.outputs, link) {
     next_output = CONTAINEROF(output->link.next, struct output, link);
     remove_output(output);
   }
 
 #define DESTROY(x) \
-  do { if (wl.x != NULL) x##_destroy(wl.x); } while (0)
+  do { if (g_wl.x != NULL) x##_destroy(g_wl.x); } while (0)
 #define DESTROYUNSTABLE(x, v) \
-  do { if (wl.x != NULL) z##x##_v##v##_destroy(wl.x); } while (0)
+  do { if (g_wl.x != NULL) z##x##_v##v##_destroy(g_wl.x); } while (0)
 
   DESTROYUNSTABLE(wlr_layer_shell, 1);
   DESTROYUNSTABLE(xdg_output_manager, 1);
@@ -655,8 +658,8 @@ void wl_cleanup(void) {
 #undef DESTROYUNSTABLE
 #undef DESTROY
 
-  if (wl.wl_display != NULL)
-    wl_display_disconnect(wl.wl_display);
+  if (g_wl.wl_display != NULL)
+    wl_display_disconnect(g_wl.wl_display);
 
   restore_int_handler();
 }
@@ -702,7 +705,7 @@ void wl_draw_zone(struct zone* zone, u32 offset, u32 position_width) {
   i32 start_x, end_x;
   const i32 start_y = 0, end_y = zone->height;
 
-  list_for_each(output, &wl.outputs, link) {
+  list_for_each(output, &g_wl.outputs, link) {
     if (output->buffer == NULL) {
       log_warn("output %s (id: %u) has buffer == NULL",
                output_name(output), output->id);
@@ -741,7 +744,7 @@ void wl_draw_zone(struct zone* zone, u32 offset, u32 position_width) {
 
 void wl_clear(u32 color) {
   struct output* output;
-  list_for_each(output, &wl.outputs, link) {
+  list_for_each(output, &g_wl.outputs, link) {
     if (output->buffer == NULL) {
       log_warn("output %s (id: %u) has buffer == NULL",
                output_name(output), output->id);

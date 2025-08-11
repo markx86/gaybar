@@ -24,10 +24,10 @@ struct bar {
   struct wl_list zones;
 };
 
-static struct bar bar = {0};
+static struct bar g_bar = {0};
 
-enum bar_position bar_get_position(void) { return bar.position; }
-u32 bar_get_thickness(void) { return bar.thickness; }
+enum bar_position bar_get_position(void) { return g_bar.position; }
+u32 bar_get_thickness(void) { return g_bar.thickness; }
 
 static inline void get_time(struct timespec* tm) {
   clock_gettime(CLOCK_MONOTONIC, tm);
@@ -35,10 +35,10 @@ static inline void get_time(struct timespec* tm) {
 
 static void render(void) {
   struct zone_private* zone_private;
-  list_for_each(zone_private, &bar.zones, link) {
+  list_for_each(zone_private, &g_bar.zones, link) {
     if (zone_private->redraw) {
       wl_draw_zone(&zone_private->zone, zone_private->offset,
-                   bar.sizes[zone_private->zone.position]);
+                   g_bar.sizes[zone_private->zone.position]);
       zone_private->redraw = false;
     }
   }
@@ -64,9 +64,9 @@ int bar_init(enum bar_position position, u32 thickness) {
   log_trace("creating bar anchored on the %s of the screen with thickness %u",
             position_string(position), thickness);
   {
-    bar.position = position;
-    bar.thickness = thickness;
-    list_init(&bar.zones);
+    g_bar.position = position;
+    g_bar.thickness = thickness;
+    list_init(&g_bar.zones);
   }
   return wl_init();
 }
@@ -108,7 +108,7 @@ static void destroy_zone_private(struct zone_private* zone_private) {
 
 void bar_cleanup(void) {
   struct zone_private *zone_private, *next_zone_private;
-  list_for_each_safe(zone_private, next_zone_private, &bar.zones, link)
+  list_for_each_safe(zone_private, next_zone_private, &g_bar.zones, link)
     destroy_zone_private(zone_private);
   wl_cleanup();
 }
@@ -124,11 +124,11 @@ struct zone* bar_alloc_zone(enum zone_position position, u32 size) {
 
   {
     zone_private->redraw = false;
-    zone_private->offset = bar.sizes[position];
-    list_insert(&bar.zones, &zone_private->link);
+    zone_private->offset = g_bar.sizes[position];
+    list_insert(&g_bar.zones, &zone_private->link);
   }
 
-  bar.sizes[position] += size;
+  g_bar.sizes[position] += size;
 
   zone = &zone_private->zone;
   /* NOTE: This works for bars that are horizontal. For vertical bars, the
@@ -137,10 +137,10 @@ struct zone* bar_alloc_zone(enum zone_position position, u32 size) {
   {
     zone->position = position;
     zone->width = size;
-    zone->height = bar.thickness;
+    zone->height = g_bar.thickness;
   }
   zone->image_buffer =
-    zalloc(size * bar.thickness * sizeof(*zone->image_buffer));
+    zalloc(size * g_bar.thickness * sizeof(*zone->image_buffer));
   ASSERT(zone->image_buffer != NULL);
 
   return zone;
