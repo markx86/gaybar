@@ -1,7 +1,7 @@
 #ifndef UTIL_H_
 #define UTIL_H_
 
-#include "types.h"
+#include <gaybar/types.h>
 
 static inline void* zalloc(size_t size) {
   /* TIL extern works inside of function bodies :^) */

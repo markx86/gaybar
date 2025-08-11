@@ -1,6 +1,6 @@
-#include "params.h"
-#include "bar.h"
-#include "log.h"
+#include <gaybar/params.h>
+#include <gaybar/bar.h>
+#include <gaybar/log.h>
 
 #include <stdbool.h>
 #include <stdio.h>

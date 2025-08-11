@@ -1,7 +1,7 @@
 #ifndef BAR_H_
 #define BAR_H_
 
-#include "types.h"
+#include <gaybar/types.h>
 
 enum bar_position {
   BAR_POSITION_TOP,

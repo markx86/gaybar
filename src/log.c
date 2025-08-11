@@ -1,5 +1,5 @@
-#include "log.h"
-#include "params.h"
+#include <gaybar/log.h>
+#include <gaybar/params.h>
 
 #include <stdarg.h>
 #include <stdio.h>

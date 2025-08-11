@@ -1,10 +1,10 @@
-#include "bar.h"
-#include "wl.h"
-#include "log.h"
-#include "util.h"
-#include "list.h"
-#include "assert.h"
-#include "compiler.h"
+#include <gaybar/bar.h>
+#include <gaybar/wl.h>
+#include <gaybar/log.h>
+#include <gaybar/util.h>
+#include <gaybar/list.h>
+#include <gaybar/assert.h>
+#include <gaybar/compiler.h>
 
 #include <stdlib.h>
 #include <time.h>
