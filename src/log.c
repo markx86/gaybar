@@ -37,6 +37,23 @@ static FILE* open_log_file(const char* path) {
   return NULL;
 }
 
+static void get_date_time_string(char* buf, size_t len) {
+  struct tm tm;
+  time_t t = time(NULL);
+  localtime_r(&t, &tm);
+  strftime(buf, len, "[%F %T]", &tm);
+}
+
+static void write_log_file_header(void) {
+  char date_time[64];
+  get_date_time_string(date_time, sizeof(date_time));
+  fprintf(g_log_file,
+          "%1$s ####################################\n"
+          "%1$s ######## gaybar is starting ########\n"
+          "%1$s ####################################\n",
+          date_time);
+}
+
 void log_init(void) {
   set_log_level();
   {
@@ -44,21 +61,20 @@ void log_init(void) {
     setvbuf(stderr, NULL, _IONBF, 0);
   }
   g_log_file = open_log_file(g_params.log_file);
+  if (g_log_file)
+    write_log_file_header();
 }
 
 /* Generate log preamble: '[YYYY-MM-DD hh:mm:ss] [XXXXX]' */
 static size_t gen_preamble(enum log_level level, char* buf, size_t len) {
-  const char* type[] = {
-    [LOG_TRACE] = "[TRACE] ",
-    [LOG_INFO]  = "[INFO]  ",
-    [LOG_WARN]  = "[WARN]  ",
-    [LOG_ERROR] = "[ERROR] ",
-    [LOG_FATAL] = "[FATAL] "
+  static const char* type[] = {
+    [LOG_TRACE] = " [TRACE] ",
+    [LOG_INFO]  = " [INFO]  ",
+    [LOG_WARN]  = " [WARN]  ",
+    [LOG_ERROR] = " [ERROR] ",
+    [LOG_FATAL] = " [FATAL] "
   };
-  struct tm tm;
-  time_t t = time(NULL);
-  localtime_r(&t, &tm);
-  strftime(buf, len, "[%F %T] ", &tm);
+  get_date_time_string(buf, len);
   strncat(buf, type[level], len);
   return strlen(buf);
 }
