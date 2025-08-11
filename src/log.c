@@ -65,6 +65,11 @@ void log_init(void) {
     write_log_file_header();
 }
 
+void log_cleanup(void) {
+  if (g_log_file)
+    fclose(g_log_file);
+}
+
 /* Generate log preamble: '[YYYY-MM-DD hh:mm:ss] [XXXXX]' */
 static size_t gen_preamble(enum log_level level, char* buf, size_t len) {
   static const char* type[] = {

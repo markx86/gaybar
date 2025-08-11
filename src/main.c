@@ -72,6 +72,7 @@ int main(int argc, char* argv[]) {
 
 bar_fail:
   bar_cleanup();
+  log_cleanup();
 args_fail:
   return rc;
 }

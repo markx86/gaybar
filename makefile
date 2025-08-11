@@ -64,15 +64,15 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.c
 
 .PHONY: run
 run: $(TARGET)
-	$(TARGET)
+	$(TARGET) -f $(BUILDDIR)/log.txt
 
 .PHONY: run-debug
 run-debug: $(TARGET)
-	$(TARGET) -L3
+	$(TARGET) -L3 -f $(BUILDDIR)/log.txt
 
 .PHONY: run-trace
 run-trace: $(TARGET)
-	$(TARGET) -L4
+	$(TARGET) -L4 -f $(BUILDDIR)/log.txt
 
 .PHONY: clean
 clean:

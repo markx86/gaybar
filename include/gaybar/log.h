@@ -16,6 +16,7 @@ enum log_level {
 #define LOG_LEVEL_MAX LOG_TRACE
 
 void log_init(void);
+void log_cleanup(void);
 
 void _log(enum log_level level, const char* fmt, ...);
 
