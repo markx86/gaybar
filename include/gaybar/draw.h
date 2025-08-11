@@ -14,5 +14,7 @@ struct zone* _draw_end(struct draw** drawp);
 
 void draw_rect(struct draw* draw, u32 x, u32 y, u32 w, u32 h, u32 color);
 void draw_icon(struct draw* draw, u32 x, u32 y, u32 w, u32 h, u32* icon);
+void draw_string(struct draw* draw, u32 x, u32 y,
+                 const char* string, u32 color);
 
 #endif

@@ -1,4 +1,5 @@
 #include <gaybar/draw.h>
+#include <gaybar/font.h>
 #include <gaybar/util.h>
 #include <gaybar/bar.h>
 #include <gaybar/assert.h>
@@ -96,4 +97,32 @@ void draw_icon(struct draw* draw, u32 x, u32 y, u32 w, u32 h, u32* icon) {
     for (ix = 0, x = sx; x < ex; ++ix, ++x)
       c[x + y * width] = icon[ix + iy * w];
   }
+}
+
+void draw_string(struct draw* draw, u32 x, u32 y,
+                 const char* string, u32 color) {
+  struct zone* zone;
+  u32* buffer;
+  size_t buffer_width, buffer_height, buffer_stride_in_pixels;
+
+  ASSERT(string != NULL);
+  ASSERT(draw != NULL);
+  ASSERT(draw->zone != NULL);
+
+  mark_dirty(draw);
+
+  zone = draw->zone;
+
+  if (x >= zone->width || y >= zone->height) {
+    log_warn("drawing out of bounds (x=%zu, y=%zu) on zone (w=%zu, h=%zu)",
+             x, y, zone->width, zone->height);
+    return;
+  }
+
+  buffer_stride_in_pixels = zone->width;
+  buffer_width = zone->width - x;
+  buffer_height = zone->height - y;
+  buffer = &zone->image_buffer[x + y * buffer_stride_in_pixels];
+  font_render_string(string, false, color, buffer,
+                     buffer_width, buffer_height, buffer_stride_in_pixels);
 }
