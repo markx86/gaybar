@@ -62,6 +62,18 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ -c $<
 
+.PHONY: run
+run: $(TARGET)
+	$(TARGET)
+
+.PHONY: run-debug
+run-debug: $(TARGET)
+	$(TARGET) -L3
+
+.PHONY: run-trace
+run-trace: $(TARGET)
+	$(TARGET) -L4
+
 .PHONY: clean
 clean:
 	@rm -rf $(BUILDDIR)
