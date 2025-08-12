@@ -13,6 +13,7 @@ CC = clang
 COMFLAGS = -Wall -Wextra
 ifeq ($(RELEASE),)
 COMFLAGS += -ggdb
+COMFLAGS += -fsanitize=address,leak,undefined
 else
 COMFLAGS += -O3
 ifeq ($(NO_SHSTK),)
@@ -31,8 +32,6 @@ LDFLAGS += \
 	-Wl,-z,relro,-z,now,-z,noexecstack \
 	-flto \
 	-pie
-else
-LDFLAGS += -lasan
 endif
 
 CFLAGS = \
