@@ -63,21 +63,23 @@ static const char* ft_strerror(FT_Error error) {
   #define FT_ERROR_START_LIST   switch (error) {
   #define FT_ERROR_END_LIST     }
   #include FT_ERRORS_H
-  return "(Unknown error)";
+  return "(unknown error)";
 }
 
-static inline u8 get_char_code_hash(u32 char_code) {
-  size_t i;
-  u8 hash = 0;
-  for (i = 0; i < 4; ++i) {
-    hash ^= char_code & 0xFF;
-    char_code >>= 8;
+static size_t glyph_width_in_64ths(u32 char_code) {
+  FT_Error error;
+
+  error = FT_Load_Char(g_font.face, char_code, FT_LOAD_BITMAP_METRICS_ONLY);
+  if (error) {
+    log_warn("could not load glyph for character code %#lx: %s",
+             char_code, ft_strerror(error));
+    return 0;
   }
-  return hash;
+
+  return g_font.face->glyph->advance.x;
 }
 
-static b8 render_temp_glyph(u32 char_code, struct rendered_glyph* res,
-                            b8 copy) {
+static b8 render_glyph(u32 char_code, struct rendered_glyph* res, b8 copy) {
   size_t y;
   FT_GlyphSlot glyph;
   FT_Error error;
@@ -121,7 +123,7 @@ static struct rendered_glyph* cache_glyph(u32 char_code,
                                           struct cached_glyph** slot) {
   struct rendered_glyph glyph;
 
-  if (!render_temp_glyph(char_code, &glyph, true))
+  if (!render_glyph(char_code, &glyph, true))
     return NULL;
 
   *slot = malloc(sizeof(**slot));
@@ -135,10 +137,21 @@ static struct rendered_glyph* cache_glyph(u32 char_code,
   return &(*slot)->glyph;
 }
 
+static inline u8 get_char_code_hash(u32 char_code) {
+  size_t i;
+  u8 hash = 0;
+  for (i = 0; i < 4; ++i) {
+    hash ^= char_code & 0xFF;
+    char_code >>= 8;
+  }
+  return hash;
+}
+
 /* FIXME: I've never made a cache so idk if this is any good, somebody should
  *        bechmark it.
  */
-static struct rendered_glyph* try_fetch_from_cache(u32 char_code) {
+static struct rendered_glyph* try_fetch_from_cache(u32 char_code,
+                                                   b8 fill_on_miss) {
   u8 char_code_hash;
   struct cached_glyph** slot;
 
@@ -150,7 +163,7 @@ static struct rendered_glyph* try_fetch_from_cache(u32 char_code) {
   }
 
   if (*slot == NULL)
-    return cache_glyph(char_code, slot);
+    return fill_on_miss ? cache_glyph(char_code, slot) : NULL;
 
   if ((*slot)->char_code == char_code) {
     ++(*slot)->hits;
@@ -160,7 +173,8 @@ static struct rendered_glyph* try_fetch_from_cache(u32 char_code) {
   /* If a lot of characters hit that slot, evict the glyph currently occupying
    * it, the most used character should (statistically) retake it.
    */
-  if (++g_font_cache.wants_slot[char_code_hash] > (*slot)->hits) {
+  if (fill_on_miss /* Don't run this check if we don't plan to fill the slot */
+      && ++g_font_cache.wants_slot[char_code_hash] > (*slot)->hits) {
     g_font_cache.wants_slot[char_code_hash] = 0;
     free(*slot);
     *slot = NULL;
@@ -178,13 +192,13 @@ static struct vec2u32 render_colored_glyph(u32 char_code,
   struct color c1, c2;
   struct rendered_glyph glyph, *cached;
 
-  cached = try_fetch_from_cache(char_code);
+  cached = try_fetch_from_cache(char_code, true);
   if (cached != NULL) {
     glyph = *cached;
     goto skip_rendering;
   }
 
-  if (!render_temp_glyph(char_code, &glyph, false))
+  if (!render_glyph(char_code, &glyph, false))
     /* That glyph does not exist, skip it */
     return (struct vec2u32) { .x = g_font.size_in_pixels << 6, .y = 0 };
 
@@ -268,7 +282,25 @@ consume_bytes:
   return code;
 }
 
-void font_render_string(const char* string, b8 wrap, u32 color, u32* buffer,
+size_t font_string_width(const char* string) {
+  u32 char_code;
+  struct rendered_glyph* glyph;
+  size_t w64ths;
+  const char* s = string;
+
+  w64ths = 0;
+  while (*s) {
+    char_code = utf8_next_char(&s);
+
+    glyph = try_fetch_from_cache(char_code, false);
+    w64ths += glyph == NULL
+              ? glyph_width_in_64ths(char_code)
+              : glyph->advance.x;
+  }
+  return (w64ths >> 6) + ((w64ths & 0x3F) != 0);
+}
+
+void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
                         size_t buffer_width, size_t buffer_height,
                         size_t buffer_stride_in_pixels) {
   u32 char_code;
@@ -316,8 +348,9 @@ void font_cache_clear(void) {
 
   /* Clear ASCII cache */
   for (i = 0; i < ARRAYLENGTH(g_font_cache.all_cached_glyphs); ++i) {
-    cached = g_font_cache.ascii[i];
+    cached = g_font_cache.all_cached_glyphs[i];
     if (cached != NULL) {
+      log_trace("freeing cached glyph for char code %#lx", cached->char_code);
       ASSERT(cached->glyph.owns_bitmap);
       free(cached->glyph.bitmap);
       free(cached);
@@ -325,6 +358,24 @@ void font_cache_clear(void) {
   }
 
   memset(&g_font_cache, 0, sizeof(g_font_cache));
+}
+
+void font_set_size(size_t pixels) {
+  FT_Error error;
+
+  error = FT_Set_Pixel_Sizes(g_font.face, 0, pixels);
+  if (error) {
+    log_error("could not set character size to %zupx: %s",
+              pixels, ft_strerror(error));
+    return;
+  }
+
+  g_font.size_in_pixels = pixels;
+  font_cache_clear();
+}
+
+size_t font_get_size(void) {
+  return g_font.size_in_pixels;
 }
 
 int font_init(void) {
@@ -361,6 +412,7 @@ int font_init(void) {
 }
 
 void font_cleanup(void) {
+  font_cache_clear();
   FT_Done_Face(g_font.face);
   FT_Done_FreeType(g_library);
 }

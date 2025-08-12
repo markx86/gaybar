@@ -123,6 +123,6 @@ void draw_string(struct draw* draw, u32 x, u32 y,
   buffer_width = zone->width - x;
   buffer_height = zone->height - y;
   buffer = &zone->image_buffer[x + y * buffer_stride_in_pixels];
-  font_render_string(string, false, color, buffer,
+  font_string_render(string, false, color, buffer,
                      buffer_width, buffer_height, buffer_stride_in_pixels);
 }
