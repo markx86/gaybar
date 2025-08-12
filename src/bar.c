@@ -99,6 +99,14 @@ int bar_init(enum bar_position position, u32 thickness) {
                 module->name, rc);
   }
 
+  /* Clear the bar */
+  {
+    while (!wl_draw_begin())
+      ;
+    wl_clear(0xFF000000);
+    wl_draw_end();
+  }
+
   rc = 0;
 out:
   return rc;
