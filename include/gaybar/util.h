@@ -21,4 +21,6 @@ static inline i32 clamp(i32 x, i32 m, i32 M) {
   return min(max(m, x), M);
 }
 
+#define ARRAYLENGTH(x) (sizeof(x) / sizeof(*x))
+
 #endif

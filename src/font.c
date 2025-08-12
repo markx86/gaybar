@@ -4,6 +4,7 @@
 #include <gaybar/bar.h>
 #include <gaybar/list.h>
 #include <gaybar/util.h>
+#include <gaybar/compiler.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -11,6 +12,10 @@
 #define DEFAULT_FONT \
   "/usr/share/fonts/adobe-source-code-pro-fonts/SourceCodePro-Regular.otf"
 #define DEFAULT_FONT_SIZE 24
+
+#define CACHE_ASCII_SIZE 128
+#define CACHE_EXTRA_SIZE 256
+#define CACHE_TOTAL_SIZE (CACHE_ASCII_SIZE + CACHE_EXTRA_SIZE)
 
 struct vec2u32 {
   u32 x, y;
@@ -20,9 +25,15 @@ struct rendered_glyph {
   b8 owns_bitmap;
   u32 width, height;
   struct vec2u32 offset, advance;
-  u64 bitmap_pitch;
   unsigned char* bitmap;
 };
+
+struct cached_glyph {
+  struct rendered_glyph glyph;
+  u32 char_code;
+  u32 hits;
+};
+STATICASSERT(OFFSETOF(struct cached_glyph, glyph) == 0);
 
 struct font {
   const char* file_path;
@@ -30,7 +41,19 @@ struct font {
   FT_Face face;
 };
 
+struct font_cache {
+  union {
+    struct {
+      struct cached_glyph* ascii[CACHE_ASCII_SIZE];
+      struct cached_glyph* extra[CACHE_EXTRA_SIZE];
+    };
+    struct cached_glyph* all_cached_glyphs[CACHE_TOTAL_SIZE];
+  };
+  u32 wants_slot[CACHE_EXTRA_SIZE];
+};
+
 static struct font g_font;
+static struct font_cache g_font_cache;
 static FT_Library g_library;
 
 static const char* ft_strerror(FT_Error error) {
@@ -43,7 +66,18 @@ static const char* ft_strerror(FT_Error error) {
   return "(Unknown error)";
 }
 
-static b8 render_glyph(u64 char_code, struct rendered_glyph* res, b8 copy) {
+static inline u8 get_char_code_hash(u32 char_code) {
+  size_t i;
+  u8 hash = 0;
+  for (i = 0; i < 4; ++i) {
+    hash ^= char_code & 0xFF;
+    char_code >>= 8;
+  }
+  return hash;
+}
+
+static b8 render_temp_glyph(u32 char_code, struct rendered_glyph* res,
+                            b8 copy) {
   size_t y;
   FT_GlyphSlot glyph;
   FT_Error error;
@@ -67,15 +101,13 @@ static b8 render_glyph(u64 char_code, struct rendered_glyph* res, b8 copy) {
   res->offset.x = glyph->bitmap_left;
   res->offset.y = g_font.size_in_pixels - glyph->bitmap_top;
   res->owns_bitmap = copy;
-  res->bitmap_pitch = glyph->bitmap.pitch;
   if (copy) {
-    res->bitmap = malloc(res->width * res->height);
-    res->bitmap_pitch = res->width;
-    for (y = 0; y < res->height; ++y) {
-      memcpy(res->bitmap + y * res->bitmap_pitch,
+    res->bitmap = malloc(res->height * res->width);
+    ASSERT(res->bitmap != NULL);
+    for (y = 0; y < res->height; ++y)
+      memcpy(res->bitmap + y * res->width,
              glyph->bitmap.buffer + y * glyph->bitmap.pitch,
-             glyph->bitmap.pitch);
-    }
+             res->width);
   } else
     /* NOTE: If copy is not true, res->bitmap is only valid until the next
      *       call to this function.
@@ -85,19 +117,78 @@ static b8 render_glyph(u64 char_code, struct rendered_glyph* res, b8 copy) {
   return true;
 }
 
-static struct vec2u32 render_colored_glyph(u64 char_code,
+static struct rendered_glyph* cache_glyph(u32 char_code,
+                                          struct cached_glyph** slot) {
+  struct rendered_glyph glyph;
+
+  if (!render_temp_glyph(char_code, &glyph, true))
+    return NULL;
+
+  *slot = malloc(sizeof(**slot));
+  ASSERT(*slot != NULL);
+  (*slot)->char_code = char_code;
+  (*slot)->hits = 1;
+  (*slot)->glyph = glyph;
+
+  log_trace("glyph %#lx cached", char_code);
+
+  return &(*slot)->glyph;
+}
+
+/* FIXME: I've never made a cache so idk if this is any good, somebody should
+ *        bechmark it.
+ */
+static struct rendered_glyph* try_fetch_from_cache(u32 char_code) {
+  u8 char_code_hash;
+  struct cached_glyph** slot;
+
+  if (char_code < sizeof(g_font_cache.ascii))
+    slot = &g_font_cache.ascii[char_code];
+  else {
+    char_code_hash = get_char_code_hash(char_code);
+    slot = &g_font_cache.extra[char_code_hash];
+  }
+
+  if (*slot == NULL)
+    return cache_glyph(char_code, slot);
+
+  if ((*slot)->char_code == char_code) {
+    ++(*slot)->hits;
+    return &(*slot)->glyph;
+  }
+
+  /* If a lot of characters hit that slot, evict the glyph currently occupying
+   * it, the most used character should (statistically) retake it.
+   */
+  if (++g_font_cache.wants_slot[char_code_hash] > (*slot)->hits) {
+    g_font_cache.wants_slot[char_code_hash] = 0;
+    free(*slot);
+    *slot = NULL;
+  }
+
+  return NULL;
+}
+
+static struct vec2u32 render_colored_glyph(u32 char_code,
                                            u32 color, u32* buffer,
                                            size_t width, size_t height,
                                            size_t stride_in_px) {
   f32 alpha, inv_alpha;
   u64 x, y, buffer_cursor, bitmap_cursor;
   struct color c1, c2;
-  struct rendered_glyph glyph;
+  struct rendered_glyph glyph, *cached;
 
-  if (!render_glyph(char_code, &glyph, false))
-    /* that glyph does not exist, skip it */
+  cached = try_fetch_from_cache(char_code);
+  if (cached != NULL) {
+    glyph = *cached;
+    goto skip_rendering;
+  }
+
+  if (!render_temp_glyph(char_code, &glyph, false))
+    /* That glyph does not exist, skip it */
     return (struct vec2u32) { .x = g_font.size_in_pixels << 6, .y = 0 };
 
+skip_rendering:
   buffer_cursor = glyph.offset.y * stride_in_px + glyph.offset.x;
   bitmap_cursor = 0;
   c1.as_u32 = color;
@@ -110,11 +201,11 @@ static struct vec2u32 render_colored_glyph(u64 char_code,
       if (x >= width)
         break;
 
-      /* get grayscale color and map it to [0.0f, 1.0f] */
+      /* Get grayscale color and map it to [0.0f, 1.0f] */
       alpha = (f32)glyph.bitmap[bitmap_cursor + x] / 255.0f;
       inv_alpha = 1.0f - alpha;
 
-      /* mix the font color and the background color by the alpha channel */
+      /* Mix the font color and the background color by the alpha channel */
       c2.as_u32 = buffer[buffer_cursor + x];
       c2.r = (c2.r * inv_alpha) + (c1.r * alpha);
       c2.g = (c2.g * inv_alpha) + (c1.g * alpha);
@@ -122,19 +213,19 @@ static struct vec2u32 render_colored_glyph(u64 char_code,
       buffer[buffer_cursor + x] = c2.as_u32;
     }
 
-    /* advance cursors */
-    bitmap_cursor += glyph.bitmap_pitch;
+    /* Advance cursors */
+    bitmap_cursor += glyph.width;
     buffer_cursor += stride_in_px;
   }
 
   return glyph.advance;
 }
 
-static u64 utf8_next_char(const char** s) {
+static u32 utf8_next_char(const char** s) {
   /* https://it.wikipedia.org/wiki/UTF-8 */
   u8 c;
   size_t consume;
-  u64 code;
+  u32 code;
 
   ASSERT(s != NULL);
   ASSERT(*s != NULL);
@@ -180,7 +271,7 @@ consume_bytes:
 void font_render_string(const char* string, b8 wrap, u32 color, u32* buffer,
                         size_t buffer_width, size_t buffer_height,
                         size_t buffer_stride_in_pixels) {
-  u64 char_code;
+  u32 char_code;
   struct vec2u32 advance;
   size_t x64ths, y64ths, cursor;
   const char* s = string;
@@ -204,7 +295,7 @@ void font_render_string(const char* string, b8 wrap, u32 color, u32* buffer,
                                    buffer_height - (y64ths >> 6),
                                    buffer_stride_in_pixels);
 
-    /* increment coordinates */
+    /* Increment coordinates */
     x64ths += advance.x;
     if (x64ths >= (buffer_width << 6)) {
       if (!wrap)
@@ -217,6 +308,23 @@ void font_render_string(const char* string, b8 wrap, u32 color, u32* buffer,
         cursor = y64ths * buffer_stride_in_pixels;
     }
   }
+}
+
+void font_cache_clear(void) {
+  size_t i;
+  struct cached_glyph *cached;
+
+  /* Clear ASCII cache */
+  for (i = 0; i < ARRAYLENGTH(g_font_cache.all_cached_glyphs); ++i) {
+    cached = g_font_cache.ascii[i];
+    if (cached != NULL) {
+      ASSERT(cached->glyph.owns_bitmap);
+      free(cached->glyph.bitmap);
+      free(cached);
+    }
+  }
+
+  memset(&g_font_cache, 0, sizeof(g_font_cache));
 }
 
 int font_init(void) {
