@@ -12,4 +12,6 @@
 
 #define UNUSED(x) ((void)(x))
 
+#define CONSTRUCTOR __attribute__((constructor))
+
 #endif

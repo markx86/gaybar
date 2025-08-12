@@ -5,6 +5,7 @@
 #include <gaybar/list.h>
 #include <gaybar/assert.h>
 #include <gaybar/compiler.h>
+#include <gaybar/module.h>
 
 #include <stdlib.h>
 #include <time.h>
@@ -23,6 +24,9 @@ struct bar {
   u32 sizes[ZONE_POSITION_MAX];
   struct wl_list zones;
 };
+
+/* This initialization is equivalent to calling list_init(..) */
+struct list g_modules = { .next = &g_modules, .prev = &g_modules };
 
 static struct bar g_bar = {0};
 
@@ -45,7 +49,18 @@ static void render(void) {
 }
 
 static int tick(f32 delta) {
-  UNUSED(delta);
+  int rc;
+  struct module* module;
+
+  list_for_each(module, &g_modules, link) {
+    rc = module_tick(module, delta);
+    if (rc < 0) {
+      log_error("unhandled error in module '%s' (error code: %d)",
+                module->name, rc);
+      module_cleanup(module);
+    }
+  }
+
   return 0;
 }
 
@@ -61,14 +76,32 @@ static const char* position_string(enum bar_position position) {
 }
 
 int bar_init(enum bar_position position, u32 thickness) {
+  int rc;
+  struct module* module;
+
   log_trace("creating bar anchored on the %s of the screen with thickness %u",
             position_string(position), thickness);
+
   {
     g_bar.position = position;
     g_bar.thickness = thickness;
     list_init(&g_bar.zones);
   }
-  return wl_init();
+
+  rc = wl_init();
+  if (rc < 0)
+    goto out;
+
+  list_for_each(module, &g_modules, link) {
+    rc = module_init(module);
+    if (rc < 0)
+      log_error("could not initialize module '%s' (error code: %d)",
+                module->name, rc);
+  }
+
+  rc = 0;
+out:
+  return rc;
 }
 
 int bar_loop(void) {
@@ -107,9 +140,15 @@ static void destroy_zone_private(struct zone_private* zone_private) {
 }
 
 void bar_cleanup(void) {
+  struct module *module, *next_module;
   struct zone_private *zone_private, *next_zone_private;
+
+  list_for_each_safe(module, next_module, &g_modules, link)
+    module_cleanup(module);
+
   list_for_each_safe(zone_private, next_zone_private, &g_bar.zones, link)
     destroy_zone_private(zone_private);
+
   wl_cleanup();
 }
 
