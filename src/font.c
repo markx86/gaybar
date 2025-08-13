@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <gaybar/log.h>
 #include <gaybar/assert.h>
 #include <gaybar/wl.h>
@@ -64,19 +65,6 @@ static const char* ft_strerror(FT_Error error) {
   #define FT_ERROR_END_LIST     }
   #include FT_ERRORS_H
   return "(unknown error)";
-}
-
-static size_t glyph_width_in_64ths(u32 char_code) {
-  FT_Error error;
-
-  error = FT_Load_Char(g_font.face, char_code, FT_LOAD_BITMAP_METRICS_ONLY);
-  if (error) {
-    log_warn("could not load glyph for character code %#lx: %s",
-             char_code, ft_strerror(error));
-    return 0;
-  }
-
-  return g_font.face->glyph->advance.x;
 }
 
 static b8 render_glyph(u32 char_code, struct rendered_glyph* res, b8 copy) {
@@ -183,6 +171,35 @@ static struct rendered_glyph* try_fetch_from_cache(u32 char_code,
   return NULL;
 }
 
+static b8 glyph_load_metrics(u32 char_code) {
+  FT_Error error;
+
+  error = FT_Load_Char(g_font.face, char_code, FT_LOAD_BITMAP_METRICS_ONLY);
+  if (error) {
+    log_warn("could not load glyph for character code %#lx: %s",
+             char_code, ft_strerror(error));
+    return false;
+  }
+
+  return true;
+}
+
+static struct vec2u32 glyph_advance(u32 char_code) {
+  struct rendered_glyph* glyph;
+  struct vec2u32 advance = {0};
+
+  glyph = try_fetch_from_cache(char_code, false);
+  if (glyph != NULL)
+    return glyph->advance;
+
+  if (glyph_load_metrics(char_code)) {
+    advance.x = g_font.face->glyph->advance.x;
+    advance.y = g_font.face->glyph->advance.y;
+  }
+
+  return advance;
+}
+
 static struct vec2u32 render_colored_glyph(u32 char_code,
                                            u32 color, u32* buffer,
                                            size_t width, size_t height,
@@ -284,18 +301,13 @@ consume_bytes:
 
 size_t font_string_width(const char* string) {
   u32 char_code;
-  struct rendered_glyph* glyph;
   size_t w64ths;
   const char* s = string;
 
   w64ths = 0;
   while (*s) {
     char_code = utf8_next_char(&s);
-
-    glyph = try_fetch_from_cache(char_code, false);
-    w64ths += glyph == NULL
-              ? glyph_width_in_64ths(char_code)
-              : glyph->advance.x;
+    w64ths += glyph_advance(char_code).x;
   }
   return (w64ths >> 6) + ((w64ths & 0x3F) != 0);
 }
@@ -320,6 +332,13 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
   cursor = 0;
   while (*s) {
     char_code = utf8_next_char(&s);
+    /* Skip unprintable characters */
+    if (!isprint(char_code)) {
+      if (char_code == '\n')
+        goto new_line;
+      else
+        continue;
+    }
 
     advance = render_colored_glyph(char_code, color,
                                    &buffer[cursor + (x64ths >> 6)],
@@ -330,14 +349,26 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
     /* Increment coordinates */
     x64ths += advance.x;
     if (x64ths >= (buffer_width << 6)) {
-      if (!wrap)
+      /* If we should wrap automatically, find the next LF character */
+      if (!wrap) {
+        while (*s) {
+          char_code = utf8_next_char(&s);
+          if (char_code == '\n')
+            /* We have a LF character, increment the y coordinate */
+            goto new_line;
+        }
+        /* There's no next LF character, we can return since nothing else
+         * will be rendered.
+         */
         return;
+      }
+new_line:
       x64ths = 0;
-      y64ths += advance.y == 0 ? (g_font.size_in_pixels << 6) : advance.y;
+      y64ths += g_font.size_in_pixels << 6;
       if (y64ths >= (buffer_height << 6))
         return;
       else
-        cursor = y64ths * buffer_stride_in_pixels;
+        cursor = (y64ths >> 6) * buffer_stride_in_pixels;
     }
   }
 }

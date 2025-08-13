@@ -77,7 +77,7 @@ static const char* position_string(enum bar_position position) {
 
 int bar_init(enum bar_position position, u32 thickness) {
   int rc;
-  struct module* module;
+  struct module *module, *module_next;
 
   log_trace("creating bar anchored on the %s of the screen with thickness %u",
             position_string(position), thickness);
@@ -92,11 +92,13 @@ int bar_init(enum bar_position position, u32 thickness) {
   if (rc < 0)
     goto out;
 
-  list_for_each(module, &g_modules, link) {
+  list_for_each_safe(module, module_next, &g_modules, link) {
     rc = module_init(module);
-    if (rc < 0)
+    if (rc < 0) {
       log_error("could not initialize module '%s' (error code: %d)",
                 module->name, rc);
+      module_cleanup(module);
+    }
   }
 
   /* Clear the bar */
