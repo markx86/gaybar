@@ -126,3 +126,15 @@ void draw_string(struct draw* draw, u32 x, u32 y,
   font_string_render(string, false, color, buffer,
                      buffer_width, buffer_height, buffer_stride_in_pixels);
 }
+
+u32 draw_width(struct draw* draw) {
+  ASSERT(draw != NULL);
+  ASSERT(draw->zone != NULL);
+  return draw->zone->width;
+}
+
+u32 draw_height(struct draw* draw) {
+  ASSERT(draw != NULL);
+  ASSERT(draw->zone != NULL);
+  return draw->zone->height;
+}

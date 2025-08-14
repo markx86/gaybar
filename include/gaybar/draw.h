@@ -17,4 +17,7 @@ void draw_icon(struct draw* draw, u32 x, u32 y, u32 w, u32 h, u32* icon);
 void draw_string(struct draw* draw, u32 x, u32 y,
                  const char* string, u32 color);
 
+u32 draw_width(struct draw* draw);
+u32 draw_height(struct draw* draw);
+
 #endif

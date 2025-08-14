@@ -12,15 +12,15 @@ static inline void* zalloc(size_t size) {
   return calloc(1, size);
 }
 
-static inline i32 min(i32 x, i32 y) {
+static inline i64 min(i64 x, i64 y) {
   return x < y ? x : y;
 }
 
-static inline i32 max(i32 x, i32 y) {
+static inline i64 max(i64 x, i64 y) {
   return x > y ? x : y;
 }
 
-static inline i32 clamp(i32 x, i32 m, i32 M) {
+static inline i64 clamp(i64 x, i64 m, i64 M) {
   return min(max(m, x), M);
 }
 

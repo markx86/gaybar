@@ -120,7 +120,7 @@ static struct rendered_glyph* cache_glyph(u32 char_code,
   (*slot)->hits = 1;
   (*slot)->glyph = glyph;
 
-  log_trace("glyph %#lx cached", char_code);
+  log_trace("caching glyph for char code %#lx", char_code);
 
   return &(*slot)->glyph;
 }
@@ -205,7 +205,8 @@ static struct vec2u32 render_colored_glyph(u32 char_code,
                                            size_t width, size_t height,
                                            size_t stride_in_px) {
   f32 alpha, inv_alpha;
-  u64 x, y, buffer_cursor, bitmap_cursor;
+  u64 x, y, sx, sy;
+  u64 buffer_cursor, bitmap_cursor;
   struct color c1, c2;
   struct rendered_glyph glyph, *cached;
 
@@ -220,16 +221,19 @@ static struct vec2u32 render_colored_glyph(u32 char_code,
     return (struct vec2u32) { .x = g_font.size_in_pixels << 6, .y = 0 };
 
 skip_rendering:
-  buffer_cursor = glyph.offset.y * stride_in_px + glyph.offset.x;
+  sx = glyph.offset.x;
+  sy = glyph.offset.y;
+
+  buffer_cursor = sy * stride_in_px + sx;
   bitmap_cursor = 0;
   c1.as_u32 = color;
 
   for (y = 0; y < glyph.height; ++y) {
-    if (y >= height)
+    if (sy + y >= height)
       break;
 
     for (x = 0; x < glyph.width; ++x) {
-      if (x >= width)
+      if (sx + x >= width)
         break;
 
       /* Get grayscale color and map it to [0.0f, 1.0f] */
@@ -301,15 +305,25 @@ consume_bytes:
 
 size_t font_string_width(const char* string) {
   u32 char_code;
-  size_t w64ths;
+  size_t w64ths, max_w64ths;
   const char* s = string;
 
-  w64ths = 0;
+  max_w64ths = w64ths = 0;
   while (*s) {
     char_code = utf8_next_char(&s);
+    /* Skip unprintable characters */
+    if (!isprint(char_code)) {
+      if (char_code == '\n') {
+        max_w64ths = max(w64ths, max_w64ths);
+        w64ths = 0;
+      }
+      continue;
+    }
     w64ths += glyph_advance(char_code).x;
   }
-  return (w64ths >> 6) + ((w64ths & 0x3F) != 0);
+  max_w64ths = max(w64ths, max_w64ths);
+
+  return (max_w64ths >> 6) + ((max_w64ths & 0x3F) != 0);
 }
 
 void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
