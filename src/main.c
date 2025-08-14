@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
 
   log_init();
 
-  rc = bar_init(BAR_POSITION_BOTTOM, 32);
+  rc = bar_init(BAR_POSITION_TOP, 32);
   if (rc < 0)
     goto bar_fail;
 

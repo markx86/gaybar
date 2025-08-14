@@ -12,7 +12,7 @@
 
 #define DEFAULT_FONT \
   "/usr/share/fonts/adobe-source-code-pro-fonts/SourceCodePro-Regular.otf"
-#define DEFAULT_FONT_SIZE 24
+#define DEFAULT_FONT_SIZE 14
 
 #define CACHE_ASCII_SIZE 128
 #define CACHE_EXTRA_SIZE 256

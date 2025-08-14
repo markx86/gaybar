@@ -1,6 +1,7 @@
 #include <gaybar/log.h>
 #include <gaybar/params.h>
 #include <gaybar/types.h>
+#include <gaybar/util.h>
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -20,10 +21,7 @@ static void set_log_level(void) {
       g_params.log_level = strtol(env, &endptr, 10);
   }
   /* Clamp log level */
-  if (g_params.log_level < LOG_LEVEL_MIN)
-    g_params.log_level = LOG_LEVEL_MIN;
-  else if (g_params.log_level > LOG_LEVEL_MAX)
-    g_params.log_level = LOG_LEVEL_MAX;
+  g_params.log_level = clamp(g_params.log_level, LOG_LEVEL_MIN, LOG_LEVEL_MAX);
 }
 
 static FILE* open_log_file(const char* path) {
