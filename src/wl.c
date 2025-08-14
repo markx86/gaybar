@@ -40,7 +40,7 @@ struct output {
   u32* buffer;
   size_t buffer_size;
   size_t buffer_stride;
-  b8 frame_done;
+  b8 frame_done, buffer_dirty;
 };
 
 struct wl {
@@ -623,6 +623,7 @@ b8 wl_draw_begin(void) {
       continue;
     }
     wl_surface_attach(output->wl_surface, output->wl_buffer, 0, 0);
+    output->buffer_dirty = false;
   }
   return true;
 }
@@ -630,7 +631,7 @@ b8 wl_draw_begin(void) {
 void wl_draw_end(void) {
   struct output* output;
   list_for_each(output, &g_wl.outputs, link) {
-    if (output->wl_surface != NULL)
+    if (output->wl_surface != NULL && output->buffer_dirty)
       request_frame(output);
   }
 }
@@ -739,6 +740,9 @@ void wl_draw_zone(struct zone* zone, u32 offset, u32 position_width) {
     wl_surface_damage_buffer(output->wl_surface,
                              start_x, start_y,
                              zone->width, zone->height);
+
+    /* Mark the buffer as dirty */
+    output->buffer_dirty = true;
   }
 }
 
@@ -754,5 +758,7 @@ void wl_clear(u32 color) {
     wmemset((int*)output->buffer, color, output->buffer_size >> 2);
     wl_surface_damage_buffer(output->wl_surface, 0, 0,
                              output->surface_width, output->surface_height);
+    /* Mark the buffer as dirty */
+    output->buffer_dirty = true;
   }
 }
