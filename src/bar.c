@@ -6,6 +6,7 @@
 #include <gaybar/assert.h>
 #include <gaybar/compiler.h>
 #include <gaybar/module.h>
+#include <gaybar/font.h>
 
 #include <stdlib.h>
 #include <time.h>
@@ -88,6 +89,10 @@ int bar_init(enum bar_position position, u32 thickness) {
     list_init(&g_bar.zones);
   }
 
+  rc = font_init();
+  if (rc < 0)
+    goto out;
+
   rc = wl_init();
   if (rc < 0)
     goto out;
@@ -159,6 +164,7 @@ void bar_cleanup(void) {
   list_for_each_safe(zone_private, next_zone_private, &g_bar.zones, link)
     destroy_zone_private(zone_private);
 
+  font_cleanup();
   wl_cleanup();
 }
 

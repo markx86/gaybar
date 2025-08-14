@@ -1,7 +1,6 @@
 #include <gaybar/params.h>
 #include <gaybar/bar.h>
 #include <gaybar/log.h>
-#include <gaybar/font.h>
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -64,7 +63,6 @@ int main(int argc, char* argv[]) {
     goto args_fail;
 
   log_init();
-  font_init();
 
   rc = bar_init(BAR_POSITION_BOTTOM, 32);
   if (rc < 0)
@@ -74,7 +72,6 @@ int main(int argc, char* argv[]) {
 
 bar_fail:
   bar_cleanup();
-  font_cleanup();
   log_cleanup();
 args_fail:
   return rc;
