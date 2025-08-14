@@ -6,10 +6,10 @@
 #include <gaybar/assert.h>
 #include <gaybar/compiler.h>
 #include <gaybar/module.h>
+#include <gaybar/sched.h>
 #include <gaybar/font.h>
 
 #include <stdlib.h>
-#include <time.h>
 
 struct zone_private {
   struct list link;
@@ -34,10 +34,6 @@ static struct bar g_bar = {0};
 enum bar_position bar_get_position(void) { return g_bar.position; }
 u32 bar_get_thickness(void) { return g_bar.thickness; }
 
-static inline void get_time(struct timespec* tm) {
-  clock_gettime(CLOCK_MONOTONIC, tm);
-}
-
 static void render(void) {
   struct zone_private* zone_private;
   list_for_each(zone_private, &g_bar.zones, link) {
@@ -47,22 +43,6 @@ static void render(void) {
       zone_private->redraw = false;
     }
   }
-}
-
-static int tick(f32 delta) {
-  int rc;
-  struct module* module;
-
-  list_for_each(module, &g_modules, link) {
-    rc = module_tick(module, delta);
-    if (rc < 0) {
-      log_error("unhandled error in module '%s' (error code: %d)",
-                module->name, rc);
-      module_cleanup(module);
-    }
-  }
-
-  return 0;
 }
 
 static const char* position_string(enum bar_position position) {
@@ -97,6 +77,8 @@ int bar_init(enum bar_position position, u32 thickness) {
   if (rc < 0)
     goto out;
 
+  sched_init();
+
   list_for_each_safe(module, module_next, &g_modules, link) {
     rc = module_init(module);
     if (rc < 0) {
@@ -119,32 +101,19 @@ out:
   return rc;
 }
 
-int bar_loop(void) {
-  int rc;
-  struct timespec now, prev;
-  f32 delta;
-
-  get_time(&prev);
+void bar_loop(void) {
+  {
+    sched_queue_prepare();
+  }
 
   while (!wl_should_close()) {
-    get_time(&now);
-    delta = (f32)(now.tv_sec - prev.tv_sec) +
-            (f32)(now.tv_nsec - prev.tv_nsec) / 1e9;
-    prev = now;
-
-    rc = tick(delta);
-    if (rc < 0)
-      goto fail;
-
+    sched_queue_run();
     if (wl_draw_begin()) {
       render();
       wl_draw_end();
     }
+    sched_queue_prepare();
   }
-
-  rc = 0;
-fail:
-  return rc;
 }
 
 static void destroy_zone_private(struct zone_private* zone_private) {
@@ -164,6 +133,7 @@ void bar_cleanup(void) {
   list_for_each_safe(zone_private, next_zone_private, &g_bar.zones, link)
     destroy_zone_private(zone_private);
 
+  sched_cleanup();
   font_cleanup();
   wl_cleanup();
 }

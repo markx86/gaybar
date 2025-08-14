@@ -68,8 +68,8 @@ int main(int argc, char* argv[]) {
   if (rc < 0)
     goto bar_fail;
 
-  rc = bar_loop();
-
+  bar_loop();
+  rc = 0;
 bar_fail:
   bar_cleanup();
   log_cleanup();

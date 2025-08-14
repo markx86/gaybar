@@ -582,11 +582,17 @@ int wl_should_close(void) {
     .events = POLLIN
   };
 
+  /* NOTE: This is a very complicated loop to achieve what
+   *       wl_display_dispatch(..) achieves. We do this because
+   *       wl_display_dispatch(..) does not return if the poll syscall was
+   *       interrupted, and we need it to return to run the scheduler.
+   */
+
   /* Send all buffered requests to the compositor */
   wl_display_flush(g_wl.wl_display);
 
   /* Poll for events from the compositor */
-  rc = poll(&pfd, 1, 0);
+  rc = poll(&pfd, 1, -1);
   /* Check for errors */
   g_should_close |= rc < 0 && errno != EINTR;
   g_should_close |= (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;

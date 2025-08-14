@@ -8,7 +8,7 @@
 
 struct module_callbacks {
   int  (*init)(void);
-  int  (*tick)(f32);
+  void (*render)(void);
   void (*cleanup)(void);
 };
 
@@ -27,9 +27,13 @@ static inline int module_init(struct module* module) {
   return module->callbacks.init == NULL ? 0 : module->callbacks.init();
 }
 
-static inline int module_tick(struct module* module, f32 delta) {
+static inline void module_render(struct module* module) {
   ASSERT(module != NULL);
-  return module->callbacks.tick == NULL ? 0 : module->callbacks.tick(delta);
+  if (module->callbacks.render == NULL)
+    log_warn("render requested for module %s, but it has no render method!",
+             module->name);
+  else
+    module->callbacks.render();
 }
 
 static inline void module_cleanup(struct module* module) {
