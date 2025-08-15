@@ -18,6 +18,9 @@
 #define CACHE_EXTRA_SIZE 256
 #define CACHE_TOTAL_SIZE (CACHE_ASCII_SIZE + CACHE_EXTRA_SIZE)
 
+#define PX2px(x) ((x) << 6) /* Convert pixels to 1/64ths of a pixel */
+#define px2PX(x) ((x) >> 6) /* Convert 1/64ths of a pixel to pixels */
+
 struct vec2u32 {
   u32 x, y;
 };
@@ -218,7 +221,7 @@ static struct vec2u32 render_colored_glyph(u32 char_code,
 
   if (!render_glyph(char_code, &glyph, false))
     /* That glyph does not exist, skip it */
-    return (struct vec2u32) { .x = g_font.size_in_pixels << 6, .y = 0 };
+    return (struct vec2u32) { .x = PX2px(g_font.size_in_pixels), .y = 0 };
 
 skip_rendering:
   sx = glyph.offset.x;
@@ -337,10 +340,8 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
   /* We assume the string is encoded in UTF-8 */
 
   /* x64ths and y64ths represent the x and y coordinates in 1/64th of a pixel,
-   * hence why all the bitshifts by 6. Remember that x << 6 == x * 64 and that
-   * x >> 6 == x / 64.
-   *
-   * FIXME: Maybe we should cleanup this bitshifts a little bit.
+   * hence why all the bitshifts by 6. Remember that:
+   * PX2px(x) == x << 6 == x * 64 and that px2PX(x) == x >> 6 == x / 64.
    */
   x64ths = 0; y64ths = 0;
   cursor = 0;
@@ -355,14 +356,14 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
     }
 
     advance = render_colored_glyph(char_code, color,
-                                   &buffer[cursor + (x64ths >> 6)],
-                                   buffer_width - (x64ths >> 6),
-                                   buffer_height - (y64ths >> 6),
+                                   &buffer[cursor + px2PX(x64ths)],
+                                   buffer_width - px2PX(x64ths),
+                                   buffer_height - px2PX(y64ths),
                                    buffer_stride_in_pixels);
 
     /* Increment coordinates */
     x64ths += advance.x;
-    if (x64ths >= (buffer_width << 6)) {
+    if (x64ths >= PX2px(buffer_width)) {
       /* If we should wrap automatically, find the next LF character */
       if (!wrap) {
         while (*s) {
@@ -378,11 +379,11 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
       }
 new_line:
       x64ths = 0;
-      y64ths += g_font.size_in_pixels << 6;
-      if (y64ths >= (buffer_height << 6))
+      y64ths += PX2px(g_font.size_in_pixels);
+      if (y64ths >= PX2px(buffer_height))
         return;
       else
-        cursor = (y64ths >> 6) * buffer_stride_in_pixels;
+        cursor = px2PX(y64ths) * buffer_stride_in_pixels;
     }
   }
 }

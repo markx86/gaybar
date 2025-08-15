@@ -23,7 +23,7 @@ static void usage(const char* argv0) {
   eputs(" -f FILE     Set log file path to FILE");
 }
 
-static int parse_args(int argc, char* argv[]) {
+static int params_parse(int argc, char* argv[]) {
   int opt;
   char* endptr;
 
@@ -42,7 +42,7 @@ static int parse_args(int argc, char* argv[]) {
         break;
       case '?':
         if (isprint(optopt))
-          eprintf("Unknown option -%c\n", optopt);
+          eprintf("Unknown option '-%c'\n", optopt);
         else
           eprintf("Invalid option character %#04x", optopt);
         usage(argv[0]);
@@ -55,10 +55,17 @@ static int parse_args(int argc, char* argv[]) {
   return 0;
 }
 
+static void params_free(void) {
+  if (g_params.log_file)
+    free(g_params.log_file);
+  if (g_params.config_file)
+    free(g_params.config_file);
+}
+
 int main(int argc, char* argv[]) {
   int rc;
 
-  rc = parse_args(argc, argv);
+  rc = params_parse(argc, argv);
   if (rc < 0)
     goto args_fail;
 
@@ -73,6 +80,7 @@ int main(int argc, char* argv[]) {
 bar_fail:
   bar_cleanup();
   log_cleanup();
+  params_free();
 args_fail:
   return rc;
 }

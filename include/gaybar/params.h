@@ -5,7 +5,7 @@
 
 struct params {
   enum log_level log_level;
-  const char* log_file;
+  char* log_file;
 };
 
 #define param_env(name) \

@@ -561,11 +561,11 @@ int wl_init(void) {
 
   /* Initialize all remaining non-initialized outputs */
   list_for_each_safe(output, next_output, &g_wl.outputs, link) {
-    log_trace("initializing output %s (id: %u)",
-              output_name(output), output->id);
-    next_output = CONTAINEROF(output->link.next, struct output, link);
-    if (output->xdg_output == NULL)
+    if (output->xdg_output == NULL) {
       init_output(output);
+      log_trace("initialized output %s (id: %u)",
+                output_name(output), output->id);
+    }
   }
 
   g_wl.init_done = true;
@@ -646,10 +646,8 @@ void wl_cleanup(void) {
   struct output *output, *next_output;
 
   /* Destroy all outputs */
-  list_for_each_safe(output, next_output, &g_wl.outputs, link) {
-    next_output = CONTAINEROF(output->link.next, struct output, link);
+  list_for_each_safe(output, next_output, &g_wl.outputs, link)
     remove_output(output);
-  }
 
 #define DESTROY(x) \
   do { if (g_wl.x != NULL) x##_destroy(g_wl.x); } while (0)
