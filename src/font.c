@@ -37,7 +37,7 @@ struct cached_glyph {
   u32 char_code;
   u32 hits;
 };
-STATICASSERT(OFFSETOF(struct cached_glyph, glyph) == 0);
+STATIC_ASSERT(OFFSET_OF(struct cached_glyph, glyph) == 0);
 
 struct font {
   const char* file_path;
@@ -393,7 +393,7 @@ void font_cache_clear(void) {
   struct cached_glyph *cached;
 
   /* Clear ASCII cache */
-  for (i = 0; i < ARRAYLENGTH(g_font_cache.all_cached_glyphs); ++i) {
+  for (i = 0; i < ARRAY_LENGTH(g_font_cache.all_cached_glyphs); ++i) {
     cached = g_font_cache.all_cached_glyphs[i];
     if (cached != NULL) {
       log_trace("freeing cached glyph for char code %#lx", cached->char_code);

@@ -21,7 +21,7 @@
 #include <wayland/xdg-output-unstable-v1.h>
 #include <wayland-client.h>
 
-STATICASSERT(sizeof(wchar_t) == sizeof(u32));
+STATIC_ASSERT(sizeof(wchar_t) == sizeof(u32));
 
 struct output {
   struct list link;

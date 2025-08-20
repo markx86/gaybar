@@ -32,7 +32,7 @@ static inline void monotonic_time(struct timespec* tm) {
   ASSERT(clock_gettime(CLOCK_MONOTONIC, tm) == 0);
 }
 
-#define ARRAYLENGTH(x)  (sizeof(x) / sizeof(*x))
-#define STATICSTRLEN(x) (sizeof(x) - 1)
+#define ARRAY_LENGTH(x)  (sizeof(x) / sizeof(*x))
+#define STATIC_STRLEN(x) (sizeof(x) - 1)
 
 #endif

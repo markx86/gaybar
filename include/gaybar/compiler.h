@@ -1,14 +1,14 @@
 #ifndef COMPILER_H_
 #define COMPILER_H_
 
-#define STATICASSERT(x) \
+#define STATIC_ASSERT(x) \
   _Static_assert(x, "static assertion failed: " #x)
 
-#define OFFSETOF(T, m) __builtin_offsetof(T, m)
-#define TYPEOF(x)      __typeof__(x)
+#define OFFSET_OF(T, m) __builtin_offsetof(T, m)
+#define TYPE_OF(x)      __typeof__(x)
 
-#define CONTAINEROF(o, T, m) \
-  ((T*)((unsigned long)(o) - OFFSETOF(T, m)))
+#define CONTAINER_OF(o, T, m) \
+  ((T*)((unsigned long)(o) - OFFSET_OF(T, m)))
 
 #define UNUSED(x) ((void)(x))
 

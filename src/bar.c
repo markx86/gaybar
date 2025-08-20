@@ -17,7 +17,7 @@ struct zone_private {
   u32 offset;
   struct zone zone;
 };
-#define ZONEPRIVATE(x) CONTAINEROF(x, struct zone_private, zone)
+#define ZONE_PRIVATE(x) CONTAINER_OF(x, struct zone_private, zone)
 
 struct bar {
   enum bar_position position;
@@ -177,7 +177,7 @@ void bar_destroy_zone(struct zone** zonep) {
   ASSERT(zonep != NULL);
   ASSERT(*zonep != NULL);
 
-  zone_private = ZONEPRIVATE(*zonep);
+  zone_private = ZONE_PRIVATE(*zonep);
   destroy_zone_private(zone_private);
 
   *zonep = NULL;
@@ -185,10 +185,10 @@ void bar_destroy_zone(struct zone** zonep) {
 
 void zone_request_redraw(struct zone* zone) {
   ASSERT(zone != NULL);
-  ZONEPRIVATE(zone)->redraw = true;
+  ZONE_PRIVATE(zone)->redraw = true;
 }
 
 b8 zone_should_redraw(struct zone* zone) {
   ASSERT(zone != NULL);
-  return ZONEPRIVATE(zone)->redraw;
+  return ZONE_PRIVATE(zone)->redraw;
 }

@@ -48,7 +48,7 @@ static inline void module_cleanup(struct module* module) {
     .callbacks = {0}                          \
   }
 
-#define MODULECALLBACKS(...)                          \
+#define MODULE_CALLBACKS(...)                         \
   static CONSTRUCTOR void __register_module(void) {   \
     g_module.callbacks = (struct module_callbacks) {  \
       __VA_ARGS__                                     \

@@ -99,10 +99,10 @@ static int read_uevent(char* buffer, size_t buffer_size) {
 static enum acpi_mode determine_acpi_mode(const char* buffer,
                                           size_t buffer_size) {
   if (!memmem(buffer, buffer_size,
-             PREFIX_CHARGE, STATICSTRLEN(PREFIX_CHARGE)))
+             PREFIX_CHARGE, STATIC_STRLEN(PREFIX_CHARGE)))
     return ACPI_MODE_CHARGE;
   else if (!memmem(buffer, buffer_size,
-                  PREFIX_ENERGY, STATICSTRLEN(PREFIX_ENERGY)))
+                  PREFIX_ENERGY, STATIC_STRLEN(PREFIX_ENERGY)))
     return ACPI_MODE_ENERGY;
   else
     return ACPI_MODE_UNKNOWN;
@@ -179,11 +179,11 @@ static b8 parse_consumption(u64* out, const char* value) {
     return false;
 
   g_consumption_ring.values[g_consumption_ring.index++] = val;
-  if (g_consumption_ring.index >= ARRAYLENGTH(g_consumption_ring.values))
+  if (g_consumption_ring.index >= ARRAY_LENGTH(g_consumption_ring.values))
     g_consumption_ring.index = 0;
 
   avg = count = 0;
-  for (i = 0; i < ARRAYLENGTH(g_consumption_ring.values); ++i) {
+  for (i = 0; i < ARRAY_LENGTH(g_consumption_ring.values); ++i) {
     if ((val = g_consumption_ring.values[i]) != (u64)-1) {
       avg += val;
       ++count;
@@ -217,7 +217,7 @@ static b8 handle_property(const char* key, const char* value) {
       reset_consumption_ring();
     return status_changed;
 
-    /* ACPI mode specific properties */
+  /* ACPI mode specific properties */
   } else if (g_battery.mode == ACPI_MODE_CHARGE) {
     if (!strcmp(key, PREFIX_CHARGE "FULL"))
       return parse_u64(&g_battery.capacity_max, value);
@@ -300,8 +300,8 @@ static void battery_render(void) {
     draw_rect(draw,
               0, 0,
               draw_width(draw), draw_height(draw),
-              COLORU32(255, 255, 0));
-    draw_string(draw, 4, 0, buffer, COLORU32(128, 0, 255));
+              COLOR_AS_U32(255, 255, 0));
+    draw_string(draw, 4, 0, buffer, COLOR_AS_U32(128, 0, 255));
   }
 }
 
@@ -365,6 +365,6 @@ static void battery_cleanup(void) {
     bar_destroy_zone(&g_zone);
 }
 
-MODULECALLBACKS(.init = battery_init,
-                .render = battery_render,
-                .cleanup = battery_cleanup);
+MODULE_CALLBACKS(.init = battery_init,
+                 .render = battery_render,
+                 .cleanup = battery_cleanup);
