@@ -6,6 +6,7 @@
 struct params {
   enum log_level log_level;
   char* log_file;
+  char* config_file;
 };
 
 #define param_env(name) \

@@ -10,6 +10,10 @@
 #include <gaybar/font.h>
 
 #include <stdlib.h>
+#include <string.h>
+
+#define BAR_DEFAULT_POSITION  "top"
+#define BAR_DEFAULT_THICKNESS 32
 
 struct zone_private {
   struct list link;
@@ -56,9 +60,103 @@ static const char* position_string(enum bar_position position) {
   }
 }
 
-int bar_init(enum bar_position position, u32 thickness) {
+static enum bar_position position_from_string(const char* s) {
+  if (strcmp(s, "bottom") == 0)
+    return BAR_POSITION_BOTTOM;
+  else if (strcmp(s, "top") == 0)
+    return BAR_POSITION_TOP;
+  else {
+    log_error("invalid position '%s' (can be either 'top' or 'bottom')", s);
+    return position_from_string(BAR_DEFAULT_POSITION);
+  }
+}
+
+static void init_module_from_config(struct config_node* node,
+                                    enum zone_position position) {
   int rc;
-  struct module *module, *module_next;
+  char* module_name;
+  struct module* module;
+
+  CONFIG_PARSE(node,
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME(CONFIG_PARAM_SELF),
+      CONFIG_PARAM_TYPE(STRING),
+      CONFIG_PARAM_STORE(module_name)
+    )
+  );
+  ASSERT(module_name != NULL);
+
+  module = module_find_by_name(module_name);
+  if (module == NULL) {
+    log_error("no module named '%s' found", module_name);
+    goto out;
+  }
+
+  rc = module_init(module, position);
+  if (rc < 0) {
+    log_error("could not initialize module '%s' (failed with error code %d)",
+              module->name, rc);
+    module_cleanup(module);
+  }
+
+out:
+  free(module_name);
+}
+
+static void init_left_side_module(size_t index, struct config_node* node) {
+  UNUSED(index);
+  init_module_from_config(node, ZONE_POSITION_LEFT);
+}
+
+static void init_center_module(size_t index, struct config_node* node) {
+  UNUSED(index);
+  init_module_from_config(node, ZONE_POSITION_CENTER);
+}
+
+static void init_right_side_module(size_t index, struct config_node* node) {
+  UNUSED(index);
+  init_module_from_config(node, ZONE_POSITION_RIGHT);
+}
+
+static void init_modules(void) {
+  struct config_node* modules_node = config_get_node(CONFIG_ROOT, "modules");
+  CONFIG_PARSE(modules_node,
+               CONFIG_ARRAY("left", init_left_side_module, NULL));
+  CONFIG_PARSE(modules_node,
+               CONFIG_ARRAY("center", init_center_module, NULL));
+  CONFIG_PARSE(modules_node,
+               CONFIG_ARRAY("right", init_right_side_module, NULL));
+  config_destroy_node(modules_node);
+}
+
+int bar_init(void) {
+  int rc;
+  enum bar_position position;
+  char* position_value;
+  long thickness;
+
+  CONFIG_PARSE(CONFIG_ROOT,
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME("position"),
+      CONFIG_PARAM_TYPE(STRING),
+      CONFIG_PARAM_STORE(position_value),
+      CONFIG_PARAM_DEFAULT(BAR_DEFAULT_POSITION)
+    ),
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME("thickness"),
+      CONFIG_PARAM_TYPE(INTEGER),
+      CONFIG_PARAM_STORE(thickness),
+      CONFIG_PARAM_DEFAULT(BAR_DEFAULT_THICKNESS)
+    )
+  );
+
+  position = position_from_string(position_value);
+  free(position_value);
+
+  if (thickness < 0) {
+    log_error("thickness must be positive (got %ld)", thickness);
+    thickness = BAR_DEFAULT_THICKNESS;
+  }
 
   log_trace("creating bar anchored on the %s of the screen with thickness %u",
             position_string(position), thickness);
@@ -79,14 +177,7 @@ int bar_init(enum bar_position position, u32 thickness) {
 
   sched_init();
 
-  list_for_each_safe(module, module_next, &g_modules, link) {
-    rc = module_init(module);
-    if (rc < 0) {
-      log_error("could not initialize module '%s' (error code: %d)",
-                module->name, rc);
-      module_cleanup(module);
-    }
-  }
+  init_modules();
 
   /* Clear the bar */
   {

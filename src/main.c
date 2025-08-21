@@ -1,6 +1,7 @@
 #include <gaybar/params.h>
 #include <gaybar/bar.h>
 #include <gaybar/log.h>
+#include <gaybar/config.h>
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -21,13 +22,14 @@ static void usage(const char* argv0) {
   eputs(" -h          Print help and exit");
   eputs(" -L LEVEL    Set log level to LEVEL");
   eputs(" -f FILE     Set log file path to FILE");
+  eputs(" -c FILE     Load configuration from FILE");
 }
 
 static int params_parse(int argc, char* argv[]) {
   int opt;
   char* endptr;
 
-  while ((opt = getopt(argc, argv, "hL:f:")) != -1) {
+  while ((opt = getopt(argc, argv, "hL:f:c:")) != -1) {
     switch (opt) {
       case 'h':
         usage(argv[0]);
@@ -39,6 +41,9 @@ static int params_parse(int argc, char* argv[]) {
         break;
       case 'f':
         g_params.log_file = strdup(optarg);
+        break;
+      case 'c':
+        g_params.config_file = strdup(optarg);
         break;
       case '?':
         if (isprint(optopt))
@@ -70,8 +75,9 @@ int main(int argc, char* argv[]) {
     goto args_fail;
 
   log_init();
+  config_load();
 
-  rc = bar_init(BAR_POSITION_TOP, 32);
+  rc = bar_init();
   if (rc < 0)
     goto bar_fail;
 
@@ -79,6 +85,7 @@ int main(int argc, char* argv[]) {
   rc = 0;
 bar_fail:
   bar_cleanup();
+  config_unload();
   log_cleanup();
   params_free();
 args_fail:

@@ -332,8 +332,11 @@ static void update_info(void) {
   }
 }
 
-static int battery_init(void) {
+static int battery_init(enum zone_position position,
+                        struct config_node* config) {
   int rc;
+
+  UNUSED(config);
 
   reset_consumption_ring();
 
@@ -349,7 +352,7 @@ static int battery_init(void) {
   else
     module_trace("detected acpi %s mode", battery_mode());
 
-  g_zone = bar_alloc_zone(ZONE_POSITION_RIGHT, compute_width());
+  g_zone = bar_alloc_zone(position, compute_width());
 
   g_task_id = sched_task_interval(update_info, 1000, true);
 fail:

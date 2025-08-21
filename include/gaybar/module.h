@@ -5,9 +5,11 @@
 #include <gaybar/list.h>
 #include <gaybar/compiler.h>
 #include <gaybar/assert.h>
+#include <gaybar/config.h>
+#include <gaybar/bar.h>
 
 struct module_callbacks {
-  int  (*init)(void);
+  int  (*init)(enum zone_position position, struct config_node*);
   void (*render)(void);
   void (*cleanup)(void);
 };
@@ -22,25 +24,11 @@ struct module {
 
 extern struct list g_modules;
 
-static inline int module_init(struct module* module) {
-  ASSERT(module != NULL);
-  return module->callbacks.init == NULL ? 0 : module->callbacks.init();
-}
+int  module_init(struct module* module, enum zone_position position);
+void module_render(struct module* module);
+void module_cleanup(struct module* module);
 
-static inline void module_render(struct module* module) {
-  ASSERT(module != NULL);
-  if (module->callbacks.render == NULL)
-    log_warn("render requested for module %s, but it has no render method!",
-             module->name);
-  else
-    module->callbacks.render();
-}
-
-static inline void module_cleanup(struct module* module) {
-  ASSERT(module != NULL);
-  if (module->callbacks.cleanup != NULL) { module->callbacks.cleanup(); }
-  list_remove(&module->link);
-}
+struct module* module_find_by_name(const char* name);
 
 #define MODULE(n, a, d)                       \
   static struct module g_module = {           \

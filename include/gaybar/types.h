@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <limits.h>
 
 typedef uint8_t  b8;
 #define true  1

@@ -39,7 +39,7 @@ struct zone {
 #define COLOR_AS_U32(rr, gg, bb) \
   (COLOR(rr, gg, bb).as_u32)
 
-int  bar_init(enum bar_position position, u32 thickness);
+int  bar_init(void);
 void bar_loop(void);
 void bar_cleanup(void);
 

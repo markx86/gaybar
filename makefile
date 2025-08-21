@@ -63,15 +63,15 @@ $(BUILDDIR)/%.o: $(SRCDIR)/%.c
 
 .PHONY: run
 run: $(TARGET)
-	$(TARGET) -f $(BUILDDIR)/log.txt
+	$(TARGET) -f $(BUILDDIR)/log.txt -c $(BUILDDIR)/config.jsonc
 
 .PHONY: run-debug
 run-debug: $(TARGET)
-	$(TARGET) -L3 -f $(BUILDDIR)/log.txt
+	$(TARGET) -L3 -f $(BUILDDIR)/log.txt -c $(BUILDDIR)/config.jsonc
 
 .PHONY: run-trace
 run-trace: $(TARGET)
-	$(TARGET) -L4 -f $(BUILDDIR)/log.txt
+	$(TARGET) -L4 -f $(BUILDDIR)/log.txt -c $(BUILDDIR)/config.jsonc
 
 .PHONY: clean
 clean:
