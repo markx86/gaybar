@@ -54,22 +54,14 @@ void config_destroy_node(struct config_node* node);
 #define CONFIG_PARAM_NAME(n)    .name = (n)
 #define CONFIG_PARAM_TYPE(t)    .type = (CONFIG_PARAM_TYPE_##t)
 #define CONFIG_PARAM_STORE(s)   .store = (void*)&(s)
+/* Use this if the parameter type is not FLOAT */
 #define CONFIG_PARAM_DEFAULT(v) \
   .has_default_value = true,    \
   .default_value = (void*)(v)
-/* I love this language */
+/* Use this if the parameter type is FLOAT */
 #define CONFIG_PARAM_DEFAULT_FLOAT(v) \
   .has_default_value = true,          \
   .default_value = *(void**)((double[]) {(v)})
-
-#define CONFIG_ARRAY(n, callback, empty_callback)    \
-  (struct config_param) {                            \
-    .type = CONFIG_PARAM_TYPE_ARRAY,                 \
-    .name = (n),                                     \
-    .has_default_value = (empty_callback) != NULL,   \
-    .store = (callback),                             \
-    .default_value = (empty_callback)                \
-  }
 
 #define CONFIG_ROOT NULL
 

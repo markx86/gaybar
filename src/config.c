@@ -248,7 +248,7 @@ static b8 parse_parameter(cJSON* container, struct config_param* param) {
   cJSON* item;
   void* value;
 
-  item = item_by_name(container, param->name);;
+  item = item_by_name(container, param->name);
   if (item == NULL) {
 try_store_default_value:
     /* That parameter has not value specified in the configuration file */
@@ -257,7 +257,7 @@ try_store_default_value:
     else if (param->has_default_value)
       store_param_value(param, param->default_value);
     else
-      log_fatal("missing required configuration parameter %s of type %s",
+      log_fatal("missing required configuration parameter '%s' of type %s",
                 param->name, param_type_string(param));
     return false;
   }
