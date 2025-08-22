@@ -15,7 +15,7 @@
 
 #define BAR_DEFAULT_POSITION  "top"
 #define BAR_DEFAULT_THICKNESS 32
-#define BAR_DEFAULT_COLOR     "#333333"
+#define BAR_DEFAULT_COLOR     "#1d1d1d"
 
 struct zone_private {
   struct list link;

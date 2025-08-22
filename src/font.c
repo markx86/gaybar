@@ -1,4 +1,4 @@
-#include <ctype.h>
+#include <gaybar/font.h>
 #include <gaybar/log.h>
 #include <gaybar/assert.h>
 #include <gaybar/wl.h>
@@ -6,13 +6,15 @@
 #include <gaybar/list.h>
 #include <gaybar/util.h>
 #include <gaybar/compiler.h>
+#include <gaybar/config.h>
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
-#define DEFAULT_FONT \
-  "/usr/share/fonts/adobe-source-code-pro-fonts/SourceCodePro-Regular.otf"
-#define DEFAULT_FONT_SIZE 14
+#include <ctype.h>
+#include <unistd.h>
+
+#define FONT_DEFAULT_SIZE 14
 
 #define CACHE_ASCII_SIZE 128
 #define CACHE_EXTRA_SIZE 256
@@ -40,7 +42,7 @@ struct cached_glyph {
 STATIC_ASSERT(OFFSET_OF(struct cached_glyph, glyph) == 0);
 
 struct font {
-  const char* file_path;
+  char* file_path;
   size_t size_in_pixels;
   FT_Face face;
 };
@@ -62,12 +64,16 @@ static FT_Library g_library;
 
 static const char* ft_strerror(FT_Error error) {
   /* https://stackoverflow.com/questions/31161284 */
-  #undef FTERRORS_H_
-  #define FT_ERRORDEF(e, v, s)  case e: return s;
-  #define FT_ERROR_START_LIST   switch (error) {
-  #define FT_ERROR_END_LIST     }
-  #include FT_ERRORS_H
+#undef FTERRORS_H_
+#define FT_ERRORDEF(e, v, s)  case e: return s;
+#define FT_ERROR_START_LIST   switch (error) {
+#define FT_ERROR_END_LIST     }
+#include FT_ERRORS_H
   return "(unknown error)";
+#undef FT_ERROR_END_LIST
+#undef FT_ERROR_START_LIST
+#undef FT_ERRORDEF
+#undef FTERRORS_H_
 }
 
 static b8 render_glyph(u32 char_code, struct rendered_glyph* res, b8 copy) {
@@ -160,6 +166,8 @@ static struct rendered_glyph* try_fetch_from_cache(u32 char_code,
     ++(*slot)->hits;
     return &(*slot)->glyph;
   }
+
+  log_trace("font cache collision on character %#lx", char_code);
 
   /* If a lot of characters hit that slot, evict the glyph currently occupying
    * it, the most used character should (statistically) retake it.
@@ -271,7 +279,7 @@ static u32 utf8_next_char(const char** s) {
   code = *((*s)++);
 
   /* ASCII character */
-  if ((code & 0b10000000) == 0)
+  if ((code >> 7) == 0)
     return code;
   else
     consume = 1;
@@ -343,7 +351,8 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
    * hence why all the bitshifts by 6. Remember that:
    * PX2px(x) == x << 6 == x * 64 and that px2PX(x) == x >> 6 == x / 64.
    */
-  x64ths = 0; y64ths = 0;
+  x64ths = y64ths = 0;
+  advance.x = advance.y = 0;
   cursor = 0;
   while (*s) {
     char_code = utf8_next_char(&s);
@@ -379,7 +388,7 @@ void font_string_render(const char* string, b8 wrap, u32 color, u32* buffer,
       }
 new_line:
       x64ths = 0;
-      y64ths += PX2px(g_font.size_in_pixels);
+      y64ths += PX2px(max(advance.y, g_font.size_in_pixels));
       if (y64ths >= PX2px(buffer_height))
         return;
       else
@@ -424,11 +433,43 @@ size_t font_get_size(void) {
   return g_font.size_in_pixels;
 }
 
+static void parse_config(void) {
+  long font_size;
+  char* font_path;
+  struct config_node* font_node = config_get_node(CONFIG_ROOT, "font");
+
+  CONFIG_PARSE(font_node,
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME("path"),
+      CONFIG_PARAM_TYPE(STRING),
+      CONFIG_PARAM_STORE(font_path),
+    ),
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME("size"),
+      CONFIG_PARAM_TYPE(INTEGER),
+      CONFIG_PARAM_STORE(font_size),
+      CONFIG_PARAM_DEFAULT(FONT_DEFAULT_SIZE)
+    )
+  );
+
+  if (access(font_path, R_OK) == 0)
+    g_font.file_path = font_path;
+  else
+    log_fatal("could not access font file '%s'", font_path);
+
+  if (font_size <= 0) {
+    log_error("invalid font size %ld, it must be > 0", font_size);
+    font_size = FONT_DEFAULT_SIZE;
+  }
+  g_font.size_in_pixels = font_size;
+
+  config_destroy_node(font_node);
+}
+
 int font_init(void) {
   FT_Error error;
 
-  g_font.file_path = DEFAULT_FONT;
-  g_font.size_in_pixels = DEFAULT_FONT_SIZE;
+  parse_config();
 
   error = FT_Init_FreeType(&g_library);
   if (error) {
@@ -438,7 +479,8 @@ int font_init(void) {
 
   error = FT_New_Face(g_library, g_font.file_path, 0, &g_font.face);
   if (error) {
-    log_error("could not load font '%s': %s", DEFAULT_FONT, ft_strerror(error));
+    log_error("could not load font '%s': %s",
+              g_font.file_path, ft_strerror(error));
     return -1;
   }
 
@@ -461,4 +503,5 @@ void font_cleanup(void) {
   font_cache_clear();
   FT_Done_Face(g_font.face);
   FT_Done_FreeType(g_library);
+  free(g_font.file_path);
 }
