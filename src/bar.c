@@ -121,7 +121,7 @@ fail:
 
 static void init_widget_from_config(struct config_node* node,
                                     enum zone_position position) {
-  char* module_name;
+  char* widget_name;
   struct config_node* config;
   struct module* module;
   struct module_instance* instance;
@@ -131,27 +131,25 @@ static void init_widget_from_config(struct config_node* node,
     CONFIG_PARAM(
       CONFIG_PARAM_NAME(CONFIG_PARAM_SELF),
       CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(module_name)
+      CONFIG_PARAM_STORE(widget_name)
     )
   );
-  ASSERT(module_name != NULL);
+  ASSERT(widget_name != NULL);
 
-  module = module_find_by_name(module_name);
+  module = module_find_by_name(widget_name);
   if (module == NULL) {
-    log_error("no module named '%s' found", module_name);
-    goto out;
+    log_error("no module widget '%s' found", widget_name);
+    goto out_module_name;
   }
 
-  config = config_get_node(CONFIG_ROOT, module_name);
+  config = config_get_node(CONFIG_ROOT, widget_name);
 
   instance = module_init(module, config, position);
   if (instance == NULL) {
     log_error("could not initialize module '%s'",
-              module_name);
-    module_cleanup(instance);
+              widget_name);
+    goto out_config;
   }
-
-  config_destroy_node(config);
 
   widget = zalloc(sizeof(*widget));
   ASSERT(widget != NULL);
@@ -159,8 +157,10 @@ static void init_widget_from_config(struct config_node* node,
   widget->instance = instance;
   list_insert(&g_widgets, &widget->link);
 
-out:
-  free(module_name);
+out_config:
+  config_destroy_node(config);
+out_module_name:
+  free(widget_name);
 }
 
 static void init_left_side_widget(size_t index, struct config_node* node) {

@@ -25,15 +25,23 @@ struct module_instance* module_init(struct module* module,
                                     struct config_node* config,
                                     enum zone_position position) {
   struct module_instance* instance;
+  void* instance_data;
 
   ASSERT(module != NULL);
   if (module->callbacks.init == NULL)
     return NULL;
 
+  instance_data = module->callbacks.init(position, config);
+  /* FIXME: This makes it so that a module that allocates no instance data
+   *        will always fail this check.
+   */
+  if (instance_data == NULL)
+    return NULL;
+
   instance = zalloc(sizeof(*instance));
   ASSERT(instance != NULL);
 
-  instance->instance_data = module->callbacks.init(position, config);
+  instance->instance_data = instance_data;
   instance->module = module;
 
   return instance;
