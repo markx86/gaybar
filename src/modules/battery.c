@@ -11,8 +11,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#define BATTERY_NAME "BAT1"
-#define BATTERY_PATH ("/sys/class/power_supply/" BATTERY_NAME "/uevent")
+#define BATTERY_PATH "/sys/class/power_supply/%s/uevent"
+#define BATTERY_DEFAULT_NAME "BAT1"
 
 #define REFRESH_INTERVAL 1.0f /* In seconds */
 
@@ -49,6 +49,7 @@ struct battery_samples {
 
 struct battery_instance {
   struct list link;
+  char* name;
   int uevent_fd;
   struct battery_info info;
   struct battery_samples consumption_ring;
@@ -96,16 +97,9 @@ static char battery_unit(struct battery_instance* instance) {
     return '?';
 }
 
-static int read_uevent(struct battery_instance* instance,
-                       char* buffer, size_t buffer_size) {
-  int rc;
-
-  lseek(instance->uevent_fd, 0, SEEK_SET);
-  rc = read(instance->uevent_fd, buffer, buffer_size);
-  if (rc < 0)
-    module_error("could not read from uevent file '%s': %m", BATTERY_PATH);
-
-  return rc;
+static int read_uevent_fd(int fd, char* buffer, size_t buffer_size) {
+  lseek(fd, 0, SEEK_SET);
+  return read(fd, buffer, buffer_size);
 }
 
 static enum acpi_mode determine_acpi_mode(const char* buffer,
@@ -120,10 +114,12 @@ static enum acpi_mode determine_acpi_mode(const char* buffer,
     return ACPI_MODE_UNKNOWN;
 }
 
-static int get_acpi_mode(struct battery_instance* instance) {
+static enum acpi_mode get_acpi_mode(int uevent_fd) {
   char buffer[1024];
-  instance->info.mode = determine_acpi_mode(buffer, sizeof(buffer));
-  return -(instance->info.mode == ACPI_MODE_UNKNOWN);
+  if (read_uevent_fd(uevent_fd, buffer, sizeof(buffer)) < 0)
+    return ACPI_MODE_UNKNOWN;
+  else
+    return determine_acpi_mode(buffer, sizeof(buffer));
 }
 
 static void parse_uevent_line(char* s, const char** key, const char** value) {
@@ -307,12 +303,12 @@ static void generate_instance_text(struct battery_instance* instance,
   i8 hours, minutes;
   get_time_left(instance, &hours, &minutes);
   get_formatted_text(buffer, buffer_size,
-                     BATTERY_NAME, hours, minutes, instance->info.percentage);
+                     instance->name, hours, minutes, instance->info.percentage);
 }
 
 static size_t compute_width(void) {
   char buffer[128];
-  get_formatted_text(buffer, sizeof(buffer), BATTERY_NAME, 99, 99, 100);
+  get_formatted_text(buffer, sizeof(buffer), BATTERY_DEFAULT_NAME, 99, 99, 100);
   return font_string_width(buffer) + 8;
 }
 
@@ -349,9 +345,12 @@ static void update_instance(struct battery_instance* instance) {
   ssize_t rc;
   char buffer[1024];
 
-  rc = read_uevent(instance, buffer, sizeof(buffer));
-  if (rc < 0)
+  rc = read_uevent_fd(instance->uevent_fd, buffer, sizeof(buffer));
+  if (rc < 0) {
+    module_error("could not read from uevent file '" BATTERY_PATH "': %m",
+                 instance->name);
     return;
+  }
 
   if (parse_uevent(instance, buffer, sizeof(buffer))) {
     trace_status(instance);
@@ -366,32 +365,53 @@ static void update_info(void) {
     update_instance(instance);
 }
 
+static void get_battery_path(char* buffer, size_t buffer_size,
+                             const char* battery_name) {
+  size_t written = snprintf(buffer, buffer_size, BATTERY_PATH, battery_name);
+  ASSERT(written < buffer_size);
+}
+
 static void* battery_init(enum zone_position position,
                           struct config_node* config) {
-  int rc;
+  int rc, uevent_fd;
   struct battery_instance* instance;
+  enum acpi_mode acpi_mode;
+  char* battery_name;
+  char uevent_path[sizeof(BATTERY_PATH) * 2];
 
-  UNUSED(config);
+  CONFIG_PARSE(config,
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME("name"),
+      CONFIG_PARAM_TYPE(STRING),
+      CONFIG_PARAM_STORE(battery_name),
+      CONFIG_PARAM_DEFAULT(BATTERY_DEFAULT_NAME)
+    )
+  );
+
+  get_battery_path(uevent_path, sizeof(uevent_path), battery_name);
+
+  rc = uevent_fd = open(uevent_path, O_RDONLY);
+  if (rc < 0) {
+    module_error("could not open uevent file '%s': %m", uevent_path);
+    goto fail;
+  }
+
+  acpi_mode = get_acpi_mode(uevent_fd);
+  if (acpi_mode == ACPI_MODE_UNKNOWN) {
+    module_error("could not determine acpi mode");
+    goto fail;
+  }
 
   instance = zalloc(sizeof(*instance));
   ASSERT(instance != NULL);
 
   reset_consumption_ring(instance);
-
-  rc = instance->uevent_fd = open(BATTERY_PATH, O_RDONLY);
-  if (rc < 0) {
-    module_error("could not open uevent file '%s': %m", BATTERY_PATH);
-    return NULL;
-  }
-
-  rc = get_acpi_mode(instance);
-  if (rc < 0) {
-    module_error("could not determine acpi mode");
-    return NULL;
-  }
-  module_trace("detected acpi %s mode", battery_mode(instance));
-
+  instance->name = battery_name;
   instance->zone = bar_alloc_zone(position, compute_width());
+  instance->uevent_fd = uevent_fd;
+  instance->info.mode = acpi_mode;
+
+  module_trace("detected acpi %s mode", battery_mode(instance));
 
   if (g_task_id < 0)
     g_task_id = sched_task_interval(update_info, 1000, true);
@@ -403,6 +423,12 @@ static void* battery_init(enum zone_position position,
   list_insert(&g_instances, &instance->link);
 
   return instance;
+
+fail:
+  if (uevent_fd >= 0)
+    close(uevent_fd);
+  free(battery_name);
+  return NULL;
 }
 
 static void battery_cleanup(void* instance_ptr) {
@@ -417,6 +443,7 @@ static void battery_cleanup(void* instance_ptr) {
     bar_destroy_zone(&instance->zone);
 
   list_remove(&instance->link);
+  free(instance->name);
   free(instance);
 }
 
