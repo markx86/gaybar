@@ -110,10 +110,10 @@ static int read_uevent(struct battery_instance* instance,
 
 static enum acpi_mode determine_acpi_mode(const char* buffer,
                                           size_t buffer_size) {
-  if (!memmem(buffer, buffer_size,
+  if (memmem(buffer, buffer_size,
              PREFIX_CHARGE, STATIC_STRLEN(PREFIX_CHARGE)))
     return ACPI_MODE_CHARGE;
-  else if (!memmem(buffer, buffer_size,
+  else if (memmem(buffer, buffer_size,
                   PREFIX_ENERGY, STATIC_STRLEN(PREFIX_ENERGY)))
     return ACPI_MODE_ENERGY;
   else
