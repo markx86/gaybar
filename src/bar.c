@@ -33,9 +33,12 @@ struct bar {
   struct wl_list zones;
 };
 
-/* This initialization is equivalent to calling list_init(..) */
-struct list g_modules = { .next = &g_modules, .prev = &g_modules };
+struct widget {
+  struct list link;
+  struct module_instance* instance;
+};
 
+static struct list g_widgets;
 static struct bar g_bar = {0};
 
 enum bar_position bar_get_position(void) { return g_bar.position; }
@@ -116,11 +119,13 @@ fail:
   return color_from_hex(BAR_DEFAULT_COLOR);
 }
 
-static void init_module_from_config(struct config_node* node,
+static void init_widget_from_config(struct config_node* node,
                                     enum zone_position position) {
-  int rc;
   char* module_name;
+  struct config_node* config;
   struct module* module;
+  struct module_instance* instance;
+  struct widget* widget;
 
   CONFIG_PARSE(node,
     CONFIG_PARAM(
@@ -137,56 +142,70 @@ static void init_module_from_config(struct config_node* node,
     goto out;
   }
 
-  rc = module_init(module, position);
-  if (rc < 0) {
-    log_error("could not initialize module '%s' (failed with error code %d)",
-              module->name, rc);
-    module_cleanup(module);
+  config = config_get_node(CONFIG_ROOT, module_name);
+
+  instance = module_init(module, config, position);
+  if (instance == NULL) {
+    log_error("could not initialize module '%s'",
+              module_name);
+    module_cleanup(instance);
   }
+
+  config_destroy_node(config);
+
+  widget = zalloc(sizeof(*widget));
+  ASSERT(widget != NULL);
+
+  widget->instance = instance;
+  list_insert(&g_widgets, &widget->link);
 
 out:
   free(module_name);
 }
 
-static void init_left_side_module(size_t index, struct config_node* node) {
+static void init_left_side_widget(size_t index, struct config_node* node) {
   UNUSED(index);
-  init_module_from_config(node, ZONE_POSITION_LEFT);
+  init_widget_from_config(node, ZONE_POSITION_LEFT);
 }
 
-static void init_center_module(size_t index, struct config_node* node) {
+static void init_center_widget(size_t index, struct config_node* node) {
   UNUSED(index);
-  init_module_from_config(node, ZONE_POSITION_CENTER);
+  init_widget_from_config(node, ZONE_POSITION_CENTER);
 }
 
-static void init_right_side_module(size_t index, struct config_node* node) {
+static void init_right_side_widget(size_t index, struct config_node* node) {
   UNUSED(index);
-  init_module_from_config(node, ZONE_POSITION_RIGHT);
+  init_widget_from_config(node, ZONE_POSITION_RIGHT);
 }
 
-static void init_modules(void) {
-  struct config_node* modules_node = config_get_node(CONFIG_ROOT, "modules");
-  CONFIG_PARSE(modules_node,
+static void init_widgets(void) {
+  struct config_node* widgets_node;
+
+  list_init(&g_widgets);
+
+  widgets_node = config_get_node(CONFIG_ROOT, "widgets");
+  CONFIG_PARSE(widgets_node,
     CONFIG_PARAM(
       CONFIG_PARAM_NAME("left"),
       CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(init_left_side_module),
+      CONFIG_PARAM_STORE(init_left_side_widget),
     )
   );
-  CONFIG_PARSE(modules_node,
+  CONFIG_PARSE(widgets_node,
     CONFIG_PARAM(
-      CONFIG_PARAM_NAME("left"),
+      CONFIG_PARAM_NAME("center"),
       CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(init_center_module),
+      CONFIG_PARAM_STORE(init_center_widget),
     )
   );
-  CONFIG_PARSE(modules_node,
+  CONFIG_PARSE(widgets_node,
     CONFIG_PARAM(
-      CONFIG_PARAM_NAME("left"),
+      CONFIG_PARAM_NAME("right"),
       CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(init_right_side_module),
+      CONFIG_PARAM_STORE(init_right_side_widget),
     )
   );
-  config_destroy_node(modules_node);
+  config_destroy_node(widgets_node);
 }
 
 int bar_init(void) {
@@ -249,7 +268,7 @@ int bar_init(void) {
 
   sched_init();
 
-  init_modules();
+  init_widgets();
 
   /* Clear the bar */
   {
@@ -287,11 +306,13 @@ static void destroy_zone_private(struct zone_private* zone_private) {
 }
 
 void bar_cleanup(void) {
-  struct module *module, *next_module;
+  struct widget *widget, *next_widget;
   struct zone_private *zone_private, *next_zone_private;
 
-  list_for_each_safe(module, next_module, &g_modules, link)
-    module_cleanup(module);
+  list_for_each_safe(widget, next_widget, &g_widgets, link) {
+    module_cleanup(widget->instance);
+    free(widget);
+  }
 
   list_for_each_safe(zone_private, next_zone_private, &g_bar.zones, link)
     destroy_zone_private(zone_private);

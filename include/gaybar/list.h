@@ -20,4 +20,10 @@
 #define list_empty  wl_list_empty
 #define list_insert_list wl_list_insert_list
 
+static inline int list_is_initialized(struct list* l) {
+  return l->next != NULL && l->prev != NULL;
+}
+
+#define LIST_UNINITIALIZED { .next = NULL, .prev = NULL }
+
 #endif
