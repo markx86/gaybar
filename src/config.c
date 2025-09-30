@@ -130,18 +130,18 @@ static inline b8 is_int(double x) {
   return (x - (double)((i64)x)) == 0.0;
 }
 
-static b8 is_same_type(struct config_param* param, cJSON* json) {
+static b8 is_same_type(struct _config_param* param, cJSON* json) {
   switch (param->type) {
-    case CONFIG_PARAM_TYPE_INTEGER:
+    case _CONFIG_PARAM_TYPE_INTEGER:
       return cJSON_IsNumber(json) &&
              is_int(cJSON_GetNumberValue(json));
-    case CONFIG_PARAM_TYPE_FLOAT:
+    case _CONFIG_PARAM_TYPE_FLOAT:
       return cJSON_IsNumber(json);
-    case CONFIG_PARAM_TYPE_STRING:
+    case _CONFIG_PARAM_TYPE_STRING:
       return cJSON_IsString(json);
-    case CONFIG_PARAM_TYPE_BOOL:
+    case _CONFIG_PARAM_TYPE_BOOL:
       return cJSON_IsBool(json);
-    case CONFIG_PARAM_TYPE_ARRAY:
+    case _CONFIG_PARAM_TYPE_ARRAY:
       return cJSON_IsArray(json);
 
     default:
@@ -151,17 +151,17 @@ static b8 is_same_type(struct config_param* param, cJSON* json) {
   }
 }
 
-static const char* param_type_string(struct config_param* param) {
+static const char* param_type_string(struct _config_param* param) {
   switch (param->type) {
-    case CONFIG_PARAM_TYPE_INTEGER:
+    case _CONFIG_PARAM_TYPE_INTEGER:
       return "INTEGER";
-    case CONFIG_PARAM_TYPE_FLOAT:
+    case _CONFIG_PARAM_TYPE_FLOAT:
       return "FLOAT";
-    case CONFIG_PARAM_TYPE_STRING:
+    case _CONFIG_PARAM_TYPE_STRING:
       return "STRING";
-    case CONFIG_PARAM_TYPE_BOOL:
+    case _CONFIG_PARAM_TYPE_BOOL:
       return "BOOL";
-    case CONFIG_PARAM_TYPE_ARRAY:
+    case _CONFIG_PARAM_TYPE_ARRAY:
       return "ARRAY";
     default:
       return "(invalid type)";
@@ -182,17 +182,17 @@ static const char* json_type_string(cJSON* json) {
     return "(invalid type)";
 }
 
-static void store_param_value(struct config_param* param, void* value) {
+static void store_param_value(struct _config_param* param, void* value) {
   switch (param->type) {
-  case CONFIG_PARAM_TYPE_INTEGER:
+  case _CONFIG_PARAM_TYPE_INTEGER:
     *((long*)param->store) = (long)value;
     break;
 
-  case CONFIG_PARAM_TYPE_FLOAT:
+  case _CONFIG_PARAM_TYPE_FLOAT:
     *((double*)param->store) = *(double*)&value;
     break;
 
-  case CONFIG_PARAM_TYPE_STRING:
+  case _CONFIG_PARAM_TYPE_STRING:
     *((char**)param->store) = strdup(value);
     break;
 
@@ -218,7 +218,7 @@ static void get_json_value(cJSON* item, void** out) {
     ASSERT(false && "unreachable");
 }
 
-static void array_parse(struct config_param* param, cJSON* array) {
+static void array_parse(struct _config_param* param, cJSON* array) {
   size_t i;
   cJSON* elem;
   config_array_parse_callback_t cb;
@@ -231,7 +231,7 @@ static void array_parse(struct config_param* param, cJSON* array) {
     cb(i++, &((struct config_node) { .json = elem }));
 }
 
-static void array_empty(struct config_param* param) {
+static void array_empty(struct _config_param* param) {
   config_array_empty_callback_t cb = param->default_value;
   if (param->has_default_value) {
     ASSERT(cb != NULL);
@@ -244,7 +244,7 @@ static inline cJSON* item_by_name(cJSON* container, const char* name) {
                                    : cJSON_GetObjectItem(container, name);
 }
 
-static b8 parse_parameter(cJSON* container, struct config_param* param) {
+static b8 parse_parameter(cJSON* container, struct _config_param* param) {
   cJSON* item;
   void* value;
 
@@ -252,7 +252,7 @@ static b8 parse_parameter(cJSON* container, struct config_param* param) {
   if (item == NULL) {
 try_store_default_value:
     /* That parameter has not value specified in the configuration file */
-    if (param->type == CONFIG_PARAM_TYPE_ARRAY)
+    if (param->type == _CONFIG_PARAM_TYPE_ARRAY)
       array_empty(param);
     else if (param->has_default_value)
       store_param_value(param, param->default_value);
@@ -269,7 +269,7 @@ try_store_default_value:
     goto try_store_default_value;
   }
 
-  if (param->type == CONFIG_PARAM_TYPE_ARRAY)
+  if (param->type == _CONFIG_PARAM_TYPE_ARRAY)
     cJSON_GetArraySize(item) == 0 ? array_empty(param)
                                   : array_parse(param, item);
   else {
@@ -280,10 +280,10 @@ try_store_default_value:
   return true;
 }
 
-size_t config_parse(struct config_node* node,
-                    struct config_param* params, size_t params_count) {
+size_t _config_parse(struct config_node* node,
+                    struct _config_param* params, size_t params_count) {
   size_t parsed;
-  struct config_param* param;
+  struct _config_param* param;
   cJSON* json_node;
 
   parsed = 0;
