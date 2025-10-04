@@ -46,7 +46,7 @@ CFLAGS += \
 	-D_FORTIFY_SOURCE=2
 endif
 
-LIBS = wayland-client freetype2
+LIBS = wayland-client freetype2 fontconfig
 
 $(foreach lib,$(LIBS),$(call pkg-config, $(lib)))
 

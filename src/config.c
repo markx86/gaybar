@@ -193,7 +193,7 @@ static void store_param_value(struct _config_param* param, void* value) {
     break;
 
   case _CONFIG_PARAM_TYPE_STRING:
-    *((char**)param->store) = strdup(value);
+    *((char**)param->store) = value != NULL ? strdup(value) : NULL;
     break;
 
   default:

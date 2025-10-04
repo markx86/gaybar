@@ -8,6 +8,7 @@
 #include <gaybar/compiler.h>
 #include <gaybar/config.h>
 
+#include <fontconfig/fontconfig.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
@@ -15,6 +16,7 @@
 #include <unistd.h>
 
 #define FONT_DEFAULT_SIZE 14
+#define FONT_DEFAULT_NAME "mono"
 
 #define CACHE_ASCII_SIZE 128
 #define CACHE_EXTRA_SIZE 256
@@ -433,9 +435,48 @@ size_t font_get_size(void) {
   return g_font.size_in_pixels;
 }
 
+static char* find_font_by_name(const char* font_name) {
+  FcPattern *search_pattern, *match_result;
+  FcResult result;
+  FcChar8* fc_font_path;
+  char* font_path;
+
+  search_pattern = FcNameParse((FcChar8*)font_name);
+  ASSERT(search_pattern != NULL);
+
+  ASSERT(FcConfigSubstitute(NULL, search_pattern, FcMatchPattern) == FcTrue);
+  FcDefaultSubstitute(search_pattern);
+
+  match_result = FcFontMatch(NULL, search_pattern, &result);
+  if (result != FcResultMatch) {
+    log_error("could not find font with name '%s'", font_name);
+    return strcmp(font_name, FONT_DEFAULT_NAME) == 0
+           ? NULL
+           : find_font_by_name(FONT_DEFAULT_NAME);
+  }
+  ASSERT(match_result != NULL);
+
+  FcPatternDestroy(search_pattern);
+
+  fc_font_path = FcPatternFormat(match_result, (FcChar8*)"%{file}");
+  ASSERT(fc_font_path != NULL);
+
+  /* We do this so we know the string has been allocated with the default
+   * libc allocator.
+   */
+  font_path = strdup((char*)fc_font_path);
+  ASSERT(font_path != NULL);
+
+  FcStrFree(fc_font_path);
+  FcPatternDestroy(match_result);
+  FcFini();
+
+  return font_path;
+}
+
 static void parse_config(void) {
   long font_size;
-  char* font_path;
+  char *font_path, *font_name;
   struct config_node* font_node = config_get_node(CONFIG_ROOT, "font");
 
   CONFIG_PARSE(font_node,
@@ -443,6 +484,13 @@ static void parse_config(void) {
       CONFIG_PARAM_NAME("path"),
       CONFIG_PARAM_TYPE(STRING),
       CONFIG_PARAM_STORE(font_path),
+      CONFIG_PARAM_DEFAULT(NULL)
+    ),
+    CONFIG_PARAM(
+      CONFIG_PARAM_NAME("name"),
+      CONFIG_PARAM_TYPE(STRING),
+      CONFIG_PARAM_STORE(font_name),
+      CONFIG_PARAM_DEFAULT(FONT_DEFAULT_NAME)
     ),
     CONFIG_PARAM(
       CONFIG_PARAM_NAME("size"),
@@ -451,6 +499,12 @@ static void parse_config(void) {
       CONFIG_PARAM_DEFAULT(FONT_DEFAULT_SIZE)
     )
   );
+
+  if (font_path == NULL) {
+    font_path = find_font_by_name(font_name);
+    free(font_name);
+  }
+  log_trace("loading font file '%s'", font_path);
 
   if (access(font_path, R_OK) == 0)
     g_font.file_path = font_path;
