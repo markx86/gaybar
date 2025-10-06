@@ -1,6 +1,8 @@
 #ifndef CONFIG_H_
 #define CONFIG_H_
 
+/* FIXME: The entire config API sucks big balls and is very error prone. */
+
 #include <gaybar/types.h>
 
 struct config_node;

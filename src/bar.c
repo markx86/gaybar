@@ -243,11 +243,12 @@ int bar_init(void) {
 
   get_colors(&background_color, &foreground_color);
 
-  log_trace("creating bar anchored on the %s of the screen with thickness %u, "
-            "background color #%02hhx%02hhx%02hhx and "
-            "foreground color #%02hhx%02hhx%02hhx",
-            position_string(position), thickness,
-            background_color.r, background_color.g, background_color.b,
+  log_trace("creating bar anchored on the %s of the screen with:",
+            position_string(position));
+  log_trace(" - thickness = %u", thickness);
+  log_trace(" - background color = #%02hhx%02hhx%02hhx",
+            background_color.r, background_color.g, background_color.b);
+  log_trace(" - foreground color = #%02hhx%02hhx%02hhx",
             foreground_color.r, foreground_color.g, foreground_color.b);
 
   {

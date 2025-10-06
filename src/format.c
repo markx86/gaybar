@@ -111,7 +111,7 @@ static b8 format_param(struct fmtbuf* buf, struct _format_parameter* param) {
   return true;
 }
 
-int _format(char* buffer, size_t buffer_size, const char* format,
+b8 _format(char* buffer, size_t buffer_size, const char* format,
             struct _format_parameter* params, size_t n_params) {
   char c, tag[64];
   struct _format_parameter* param;

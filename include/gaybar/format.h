@@ -19,8 +19,9 @@ struct _format_parameter {
   };
 };
 
-int _format(char* buffer, size_t buffer_size, const char* format,
-            struct _format_parameter* params, size_t n_params);
+/* This function returns true if the buffer was too small, false otherwise */
+b8 _format(char* buffer, size_t buffer_size, const char* format,
+           struct _format_parameter* params, size_t n_params);
 
 #define FORMAT_PARAM(_tag, _type, _value) \
   { .tag = _tag, .type = _FORMAT_TYPE_##_type, .value_##_type = _value }
