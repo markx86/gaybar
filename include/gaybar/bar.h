@@ -2,6 +2,7 @@
 #define BAR_H_
 
 #include <gaybar/types.h>
+#include <gaybar/color.h>
 
 enum bar_position {
   BAR_POSITION_TOP,
@@ -16,35 +17,20 @@ enum zone_position {
   ZONE_POSITION_MAX
 };
 
-struct color {
-  union {
-    struct {
-      u8 b;
-      u8 g;
-      u8 r;
-      u8 a;
-    };
-    u32 as_u32;
-  };
-};
-
 struct zone {
   enum zone_position position;
   u32 width, height;
   u32* image_buffer;
 };
 
-#define COLOR(rr, gg, bb) \
-  ((struct color) { .a = 0xFF, .r = rr, .g = gg, .b = bb })
-#define COLOR_AS_U32(rr, gg, bb) \
-  (COLOR(rr, gg, bb).as_u32)
-
 int  bar_init(void);
 void bar_loop(void);
 void bar_cleanup(void);
 
-enum bar_position bar_get_position(void);
 u32               bar_get_thickness(void);
+enum bar_position bar_get_position(void);
+struct color      bar_get_background_color(void);
+struct color      bar_get_foreground_color(void);
 
 struct zone* bar_alloc_zone(enum zone_position position, u32 size);
 void         bar_destroy_zone(struct zone** zonep);

@@ -54,6 +54,8 @@ struct battery_instance {
   struct battery_info info;
   struct battery_samples consumption_ring;
   struct zone* zone;
+  struct color bg_color;
+  struct color fg_color;
 };
 
 static i64 g_task_id = -1;
@@ -323,8 +325,8 @@ static void battery_render(void* instance_ptr) {
     draw_rect(draw,
               0, 0,
               draw_width(draw), draw_height(draw),
-              COLOR_AS_U32(255, 255, 0));
-    draw_string(draw, 4, 0, buffer, COLOR_AS_U32(128, 0, 255));
+              instance->bg_color.as_u32);
+    draw_string(draw, 4, 0, buffer, instance->fg_color.as_u32);
   }
 }
 
@@ -371,15 +373,14 @@ static void get_battery_path(char* buffer, size_t buffer_size,
   ASSERT(written < buffer_size);
 }
 
-static void* battery_init(enum zone_position position,
-                          struct config_node* config) {
+static void* battery_init(struct module_init_data* init_data) {
   int rc, uevent_fd;
   struct battery_instance* instance;
   enum acpi_mode acpi_mode;
   char* battery_name;
   char uevent_path[sizeof(BATTERY_PATH) * 2];
 
-  CONFIG_PARSE(config,
+  CONFIG_PARSE(init_data->config,
     CONFIG_PARAM(
       CONFIG_PARAM_NAME("name"),
       CONFIG_PARAM_TYPE(STRING),
@@ -407,9 +408,11 @@ static void* battery_init(enum zone_position position,
 
   reset_consumption_ring(instance);
   instance->name = battery_name;
-  instance->zone = bar_alloc_zone(position, compute_width());
+  instance->zone = bar_alloc_zone(init_data->position, compute_width());
   instance->uevent_fd = uevent_fd;
   instance->info.mode = acpi_mode;
+  instance->fg_color = init_data->foreground_color;
+  instance->bg_color = init_data->background_color;
 
   module_trace("detected acpi %s mode", battery_mode(instance));
 

@@ -1,8 +1,7 @@
 #include <gaybar/font.h>
 #include <gaybar/log.h>
 #include <gaybar/assert.h>
-#include <gaybar/wl.h>
-#include <gaybar/bar.h>
+#include <gaybar/color.h>
 #include <gaybar/list.h>
 #include <gaybar/util.h>
 #include <gaybar/compiler.h>

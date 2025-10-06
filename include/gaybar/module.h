@@ -8,8 +8,15 @@
 #include <gaybar/config.h>
 #include <gaybar/bar.h>
 
+struct module_init_data {
+  enum zone_position position;
+  struct config_node* config;
+  struct color foreground_color;
+  struct color background_color;
+};
+
 struct module_callbacks {
-  void* (*init)(enum zone_position position, struct config_node* config);
+  void* (*init)(struct module_init_data* initdata);
   void  (*render)(void* instance);
   void  (*cleanup)(void* instance);
 };
@@ -63,5 +70,7 @@ void module_cleanup(struct module_instance* instance);
   log_error("%s: " x, g_module.name, ##__VA_ARGS__)
 #define module_fatal(x, ...) \
   log_fatal("%s: " x, g_module.name, ##__VA_ARGS__)
+
+#define MODULE_INIT_FAIL ((void*)-1)
 
 #endif

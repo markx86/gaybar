@@ -11,11 +11,11 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 
-#define BAR_DEFAULT_POSITION  "top"
-#define BAR_DEFAULT_THICKNESS 32
-#define BAR_DEFAULT_COLOR     "#1d1d1d"
+#define BAR_DEFAULT_POSITION         "top"
+#define BAR_DEFAULT_THICKNESS        24
+#define BAR_DEFAULT_COLOR_BACKGROUND "#1d1d1d"
+#define BAR_DEFAULT_COLOR_FOREGROUND "#eeeeee"
 
 struct zone_private {
   struct list link;
@@ -28,7 +28,8 @@ struct zone_private {
 struct bar {
   enum bar_position position;
   u32 thickness;
-  struct color color;
+  struct color background_color;
+  struct color foreground_color;
   u32 sizes[ZONE_POSITION_MAX];
   struct wl_list zones;
 };
@@ -41,8 +42,10 @@ struct widget {
 static struct list g_widgets;
 static struct bar g_bar = {0};
 
-enum bar_position bar_get_position(void) { return g_bar.position; }
 u32 bar_get_thickness(void) { return g_bar.thickness; }
+enum bar_position bar_get_position(void) { return g_bar.position; }
+struct color bar_get_background_color() { return g_bar.background_color; }
+struct color bar_get_foreground_color() { return g_bar.foreground_color; }
 
 static void render(void) {
   struct zone_private* zone_private;
@@ -75,48 +78,6 @@ static enum bar_position position_from_string(const char* s) {
     log_error("invalid position '%s' (can be either 'top' or 'bottom')", s);
     return position_from_string(BAR_DEFAULT_POSITION);
   }
-}
-
-static u8 hex_char_to_u8(char c) {
-  ASSERT(isxdigit(c));
-
-  if (c >= '0' && c <= '9')
-    return c - '0';
-  else if (c >= 'A'&& c <= 'F')
-    return (c - 'A') + 10;
-  else if (c >= 'a'&& c <= 'f')
-    return (c - 'a') + 10;
-  else
-    ASSERT(false && "unreachable");
-}
-
-static struct color color_from_hex(const char* s) {
-  size_t i, l;
-  struct color c;
-
-  ASSERT(s != NULL);
-
-  l = strlen(s);
-
-  if (*s != '#')
-    goto fail;
-  if (l - 1 != 6)
-    goto fail;
-
-  for (i = 1; i < l; ++i) {
-    if (!isxdigit(s[i]))
-      goto fail;
-  }
-
-  c.r = (hex_char_to_u8(s[1]) << 4) | hex_char_to_u8(s[2]);
-  c.g = (hex_char_to_u8(s[3]) << 4) | hex_char_to_u8(s[4]);
-  c.b = (hex_char_to_u8(s[5]) << 4) | hex_char_to_u8(s[6]);
-  c.a = 0xFF;
-
-  return c;
-fail:
-  log_error("invalid color '%s', must be in RGB HEX format", s);
-  return color_from_hex(BAR_DEFAULT_COLOR);
 }
 
 static void init_widget_from_config(struct config_node* node,
@@ -208,12 +169,54 @@ static void init_widgets(void) {
   config_destroy_node(widgets_node);
 }
 
+static void get_colors(struct color* background_color,
+                       struct color* foreground_color) {
+  struct config_node* colors;
+  char *foreground_color_hex, *background_color_hex;
+
+  colors = config_get_node(CONFIG_ROOT, "colors");
+  if (colors == NULL) {
+    background_color_hex = BAR_DEFAULT_COLOR_BACKGROUND;
+    foreground_color_hex = BAR_DEFAULT_COLOR_FOREGROUND;
+  } else {
+    CONFIG_PARSE(colors,
+      CONFIG_PARAM(
+        CONFIG_PARAM_NAME("foreground"),
+        CONFIG_PARAM_TYPE(STRING),
+        CONFIG_PARAM_STORE(foreground_color_hex),
+        CONFIG_PARAM_DEFAULT(BAR_DEFAULT_COLOR_FOREGROUND)
+      ),
+      CONFIG_PARAM(
+        CONFIG_PARAM_NAME("background"),
+        CONFIG_PARAM_TYPE(STRING),
+        CONFIG_PARAM_STORE(background_color_hex),
+        CONFIG_PARAM_DEFAULT(BAR_DEFAULT_COLOR_BACKGROUND)
+      )
+    );
+  }
+
+  if (!color_from_hex(background_color_hex, background_color))
+    ASSERT(color_from_hex(BAR_DEFAULT_COLOR_BACKGROUND, background_color));
+  if (!color_from_hex(foreground_color_hex, foreground_color))
+    ASSERT(color_from_hex(BAR_DEFAULT_COLOR_FOREGROUND, foreground_color));
+
+  /* If the config node is not NULL then these values have been strduped
+   * by CONFIG_PARSE(..).
+   */
+  if (colors != NULL) {
+    free(background_color_hex);
+    free(foreground_color_hex);
+  }
+
+  config_destroy_node(colors);
+}
+
 int bar_init(void) {
   int rc;
   enum bar_position position;
-  char *position_value, *color_value;
+  char* position_value;
   long thickness;
-  struct color color;
+  struct color background_color, foreground_color;
 
   CONFIG_PARSE(CONFIG_ROOT,
     CONFIG_PARAM(
@@ -227,12 +230,6 @@ int bar_init(void) {
       CONFIG_PARAM_TYPE(INTEGER),
       CONFIG_PARAM_STORE(thickness),
       CONFIG_PARAM_DEFAULT(BAR_DEFAULT_THICKNESS)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("color"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(color_value),
-      CONFIG_PARAM_DEFAULT(BAR_DEFAULT_COLOR)
     )
   );
 
@@ -244,17 +241,20 @@ int bar_init(void) {
     thickness = BAR_DEFAULT_THICKNESS;
   }
 
-  color = color_from_hex(color_value);
-  free(color_value);
+  get_colors(&background_color, &foreground_color);
 
-  log_trace("creating bar anchored on the %s of the screen with thickness %u "
-            "and color #%02hhx%02hhx%02hhx",
-            position_string(position), thickness, color.r, color.g, color.b);
+  log_trace("creating bar anchored on the %s of the screen with thickness %u, "
+            "background color #%02hhx%02hhx%02hhx and "
+            "foreground color #%02hhx%02hhx%02hhx",
+            position_string(position), thickness,
+            background_color.r, background_color.g, background_color.b,
+            foreground_color.r, foreground_color.g, foreground_color.b);
 
   {
     g_bar.position = position;
     g_bar.thickness = thickness;
-    g_bar.color = color;
+    g_bar.background_color = background_color;
+    g_bar.foreground_color = foreground_color;
     list_init(&g_bar.zones);
   }
 
@@ -274,7 +274,7 @@ int bar_init(void) {
   {
     while (!wl_draw_begin())
       ;
-    wl_clear(g_bar.color.as_u32);
+    wl_clear(g_bar.background_color.as_u32);
     wl_draw_end();
   }
 

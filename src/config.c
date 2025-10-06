@@ -281,7 +281,7 @@ try_store_default_value:
 }
 
 size_t _config_parse(struct config_node* node,
-                    struct _config_param* params, size_t params_count) {
+                     struct _config_param* params, size_t params_count) {
   size_t parsed;
   struct _config_param* param;
   cJSON* json_node;
