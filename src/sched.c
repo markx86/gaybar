@@ -48,7 +48,7 @@ static void set_alarm_for(struct timespec* timestamp) {
   ts.it_value = *timestamp;
   ts.it_interval.tv_sec = ts.it_interval.tv_nsec = 0;
   g_timer_expired = false;
-  if (timer_settime(g_timer, TIMER_ABSTIME, &ts, NULL))
+  if (timer_settime(g_timer, TIMER_ABSTIME, &ts, NULL) < 0)
     log_fatal("could not set scheduler timer: %m");
 }
 
@@ -159,11 +159,30 @@ void sched_queue_run(void) {
 }
 
 static u64 create_task(task_t task, size_t interval_ms, size_t delay_ms) {
-  struct task* task_struct = malloc(sizeof(*task_struct));
+  struct task* task_struct;
+
+  /* If a task is non repeating and has a delay of 0ms, run it immediately */
+  if (interval_ms == 0 && delay_ms == 0) {
+    task();
+    return g_next_id++;
+  }
+
+  task_struct = malloc(sizeof(*task_struct));
   ASSERT(task_struct != NULL);
+
   task_struct->id = g_next_id++;
   task_struct->execute = task;
   task_struct->interval = interval_ms;
+
+  /* If a task has a 0ms delay, execute it immediately. */
+  if (delay_ms == 0) {
+    task();
+    /* We need to update the delay_ms otherwise get_execute_time(..) will make
+     * the task execute twice.
+     */
+    delay_ms = interval_ms;
+  }
+
   get_execute_time(&task_struct->execute_time, delay_ms);
   list_insert(&g_task_list, &task_struct->link);
   return task_struct->id;
