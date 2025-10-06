@@ -69,6 +69,13 @@ static void reset_consumption_ring(struct battery_instance* instance) {
   memset(ring->values, 0xFF, sizeof(ring->values));
 }
 
+static void fill_consumption_ring(struct battery_instance* instance) {
+  u64 i;
+  struct battery_samples* ring = &instance->consumption_ring;
+  for (i = 0; i < ARRAY_LENGTH(ring->values); ++i)
+    ring->values[i] = ring->values[0];
+}
+
 static const char* battery_mode(struct battery_instance* instance) {
   struct battery_info* info = &instance->info;
   if (info->mode == ACPI_MODE_CHARGE)
@@ -204,7 +211,7 @@ static b8 parse_consumption(struct battery_instance* instance,
   }
   avg /= count;
 
-  changed = instance->info.consumption_avg != avg;
+  changed = abs((int)(instance->info.consumption_avg - avg)) >= 10000;
   if (changed)
     instance->info.consumption_avg = avg;
 
@@ -416,14 +423,16 @@ static void* battery_init(struct module_init_data* init_data) {
 
   module_trace("detected acpi %s mode", battery_mode(instance));
 
+  if (!list_is_initialized(&g_instances))
+    list_init(&g_instances);
+  list_insert(&g_instances, &instance->link);
+
   if (g_task_id < 0)
     g_task_id = sched_task_interval(update_info, 1000, true);
   else
     update_instance(instance);
 
-  if (!list_is_initialized(&g_instances))
-    list_init(&g_instances);
-  list_insert(&g_instances, &instance->link);
+  fill_consumption_ring(instance);
 
   return instance;
 
