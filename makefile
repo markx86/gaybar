@@ -75,4 +75,4 @@ run-trace: $(TARGET)
 
 .PHONY: clean
 clean:
-	@rm -rf $(BUILDDIR)
+	@rm -f $(OBJS) $(TARGET)

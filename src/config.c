@@ -117,7 +117,7 @@ void config_load(void) {
   g_root = cJSON_ParseWithLength(content, content_size);
   if (g_root == NULL)
     /* FIXME: Print where the error is */
-    log_error("could not parse config file");
+    log_error("failed to parse config file");
 
   unload_config_file(content, content_size);
 }

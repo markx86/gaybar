@@ -3,7 +3,6 @@
 #include <gaybar/list.h>
 #include <gaybar/util.h>
 
-#include <signal.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -18,39 +17,8 @@ struct task {
 
 static struct list g_task_list;
 static struct list g_task_queue;
-static timer_t g_timer;
-static b8 g_timer_expired;
 static u64 g_next_id;
-
-static void alrm_handler(int signo) {
-  ASSERT(signo == SIGALRM);
-  g_timer_expired = true;
-}
-
-static void set_alrm_handler(void) {
-  struct sigaction sigact;
-  sigact.sa_flags = 0;
-  sigact.sa_handler = &alrm_handler;
-  sigemptyset(&sigact.sa_mask);
-  ASSERT(sigaction(SIGALRM, &sigact, NULL) == 0);
-}
-
-static void restore_alrm_handler(void) {
-  struct sigaction sigact;
-  sigact.sa_flags = 0;
-  sigact.sa_handler = SIG_DFL;
-  sigemptyset(&sigact.sa_mask);
-  ASSERT(sigaction(SIGALRM, &sigact, NULL) == 0);
-}
-
-static void set_alarm_for(struct timespec* timestamp) {
-  struct itimerspec ts;
-  ts.it_value = *timestamp;
-  ts.it_interval.tv_sec = ts.it_interval.tv_nsec = 0;
-  g_timer_expired = false;
-  if (timer_settime(g_timer, TIMER_ABSTIME, &ts, NULL) < 0)
-    log_fatal("could not set scheduler timer: %m");
-}
+static struct timespec g_next_tick;
 
 static void task_destroy(struct task* task) {
   list_remove(&task->link);
@@ -63,12 +31,10 @@ static void task_enqueue(struct task* task) {
 }
 
 void sched_init(void) {
-  ASSERT(timer_create(CLOCK_MONOTONIC, (void*)SIGEV_SIGNAL, &g_timer) == 0);
   list_init(&g_task_list);
   list_init(&g_task_queue);
-  set_alrm_handler();
-  g_timer_expired = true;
   g_next_id = 0;
+  monotonic_time(&g_next_tick);
 }
 
 void sched_cleanup(void) {
@@ -79,23 +45,51 @@ void sched_cleanup(void) {
 
   list_for_each_safe(task, task_next, &g_task_queue, link)
     task_destroy(task);
-
-  restore_alrm_handler();
 }
 
 /* Returns +1 if the time indicated by a comes after the time indicated by b,
  * -1 if it comes before and 0 if the timevals are equal.
  */
 static int timespec_cmp(struct timespec* a, struct timespec* b) {
-  i64 sec_diff, nsec_diff;
+  i64 sec_diff, msec_diff;
 
   sec_diff = a->tv_sec - b->tv_sec;
-  nsec_diff = a->tv_nsec - b->tv_nsec;
+  msec_diff = (a->tv_nsec - b->tv_nsec) / 1e6;
 
   if (sec_diff == 0)
-    return signi(nsec_diff);
+    return signi(msec_diff);
   else
     return signi(sec_diff);
+}
+
+static inline void set_next_tick(struct timespec tick) {
+  g_next_tick = tick;
+}
+
+static b8 should_tick(void) {
+  struct timespec tm;
+  monotonic_time(&tm);
+  return timespec_cmp(&g_next_tick, &tm) <= 0;
+}
+
+i64 sched_time_left_ms(void) {
+  i64 time_left;
+  struct timespec tm;
+
+  if (list_empty(&g_task_queue))
+    return -1;
+
+  monotonic_time(&tm);
+
+  time_left = (g_next_tick.tv_sec - tm.tv_sec) * 1e3;
+  if (time_left < 0)
+    return 0;
+
+  time_left += (g_next_tick.tv_nsec - tm.tv_nsec) / 1e6;
+  if (time_left < 0)
+    return 0;
+
+  return time_left;
 }
 
 void sched_queue_prepare(void) {
@@ -103,7 +97,11 @@ void sched_queue_prepare(void) {
   struct task *task, *task_next;
   struct timespec timeout;
 
-  if (!g_timer_expired)
+  /* We still have tasks to execute, that means that this function is being
+   * called before sched_queue_run(..) has executed, meaning the next tick has
+   * yet to happen.
+   */
+  if (!list_empty(&g_task_queue))
     return;
 
   timeout.tv_sec = timeout.tv_nsec = INT64_MAX;
@@ -121,7 +119,7 @@ void sched_queue_prepare(void) {
   }
 
   if (!list_empty(&g_task_queue))
-    set_alarm_for(&timeout);
+    set_next_tick(timeout);
 }
 
 static void get_execute_time(struct timespec* timespec, size_t delay_ms) {
@@ -143,7 +141,7 @@ static void get_execute_time(struct timespec* timespec, size_t delay_ms) {
 void sched_queue_run(void) {
   struct task *task, *task_next;
 
-  if (!g_timer_expired || list_empty(&g_task_queue))
+  if (list_empty(&g_task_queue) || !should_tick())
     return;
 
   list_for_each_safe(task, task_next, &g_task_queue, link) {

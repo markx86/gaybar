@@ -7,6 +7,7 @@ typedef void (*task_t)(void);
 
 void sched_init(void);
 void sched_cleanup(void);
+i64  sched_time_left_ms(void);
 
 void sched_queue_prepare(void);
 void sched_queue_run(void);

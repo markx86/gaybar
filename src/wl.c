@@ -1,3 +1,4 @@
+#include <gaybar/sched.h>
 #include <gaybar/wl.h>
 #include <gaybar/bar.h>
 #include <gaybar/log.h>
@@ -592,7 +593,7 @@ int wl_should_close(void) {
   wl_display_flush(g_wl.wl_display);
 
   /* Poll for events from the compositor */
-  rc = poll(&pfd, 1, -1);
+  rc = poll(&pfd, 1, sched_time_left_ms());
   /* Check for errors */
   g_should_close |= rc < 0 && errno != EINTR;
   g_should_close |= (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0;
