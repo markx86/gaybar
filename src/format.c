@@ -78,15 +78,19 @@ static struct _format_parameter*
 find_param_by_tag(const char* tag,
                   struct _format_parameter* params, size_t n_params) {
   struct _format_parameter* param;
+  const char* opts;
+  size_t cmp_len;
   for (param = params; n_params > 0; --n_params) {
-    if (strcmp(param->tag, tag) == 0)
+    opts = strchr(param->tag, ':');
+    cmp_len = opts == NULL ? strlen(param->tag) : opts - param->tag;
+    if (strncmp(param->tag, tag, cmp_len) == 0)
       return param;
     ++param;
   }
   return NULL;
 }
 
-static b8 format_param(struct fmtbuf* buf, struct _format_parameter* param) {
+static void format_param(struct fmtbuf* buf, struct _format_parameter* param) {
   size_t buf_size, written;
 
   buf_size = buf->end - buf->ptr;
@@ -102,13 +106,13 @@ static b8 format_param(struct fmtbuf* buf, struct _format_parameter* param) {
       written = snprintf(buf->ptr, buf_size, "%ld", param->value_INTEGER);
       break;
     default:
-      return false;
+      written = param->fmter(buf->ptr, buf_size, param->value_CUSTOM);
+      break;
   }
 
   /* Mark the buffer as full if there was no space for snprintf */
   buf->full = written >= buf_size;
   buf->ptr += min(written, buf_size);
-  return true;
 }
 
 b8 _format(char* buffer, size_t buffer_size, const char* format,
@@ -151,15 +155,13 @@ b8 _format(char* buffer, size_t buffer_size, const char* format,
 
     param = find_param_by_tag(tag, params, n_params);
     if (param == NULL) {
-fail_format:
       fmtbuf_putc(&buf, c);
       fmtbuf_puts(&buf, tag);
       fmtbuf_putc(&buf, '}');
       continue;
     }
 
-    if (!format_param(&buf, param))
-      goto fail_format;
+    format_param(&buf, param);
   }
 
   return fmtbuf_is_full(&buf);
