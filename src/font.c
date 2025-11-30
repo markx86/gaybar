@@ -32,7 +32,7 @@ struct rendered_glyph {
   b8 owns_bitmap;
   u32 width, height;
   struct vec2u32 offset, advance;
-  unsigned char* bitmap;
+  u8* bitmap;
 };
 
 struct cached_glyph {
@@ -277,7 +277,7 @@ static u32 utf8_next_char(const char** s) {
   ASSERT(s != NULL);
   ASSERT(*s != NULL);
 
-  code = *((*s)++);
+  code = *((*s)++) & 0xFF;
 
   /* ASCII character */
   if ((code >> 7) == 0)
