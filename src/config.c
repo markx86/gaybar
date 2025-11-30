@@ -218,7 +218,7 @@ static void get_json_value(cJSON* item, void** out) {
     ASSERT(false && "unreachable");
 }
 
-static void array_parse(struct _config_param* param, cJSON* array) {
+static void array_parse(void* data, struct _config_param* param, cJSON* array) {
   size_t i;
   cJSON* elem;
   config_array_parse_callback_t cb;
@@ -228,14 +228,14 @@ static void array_parse(struct _config_param* param, cJSON* array) {
 
   i = 0;
   cJSON_ArrayForEach(elem, array)
-    cb(i++, &((struct config_node) { .json = elem }));
+    cb(data, i++, &((struct config_node) { .json = elem }));
 }
 
-static void array_empty(struct _config_param* param) {
+static void array_empty(void* data, struct _config_param* param) {
   config_array_empty_callback_t cb = param->default_value;
   if (param->has_default_value) {
     ASSERT(cb != NULL);
-    cb();
+    cb(data);
   }
 }
 
@@ -244,7 +244,8 @@ static inline cJSON* item_by_name(cJSON* container, const char* name) {
                                    : cJSON_GetObjectItem(container, name);
 }
 
-static b8 parse_parameter(cJSON* container, struct _config_param* param) {
+static b8 parse_parameter(void* data, cJSON* container,
+                          struct _config_param* param) {
   cJSON* item;
   void* value;
 
@@ -253,7 +254,7 @@ static b8 parse_parameter(cJSON* container, struct _config_param* param) {
 try_store_default_value:
     /* That parameter has not value specified in the configuration file */
     if (param->type == _CONFIG_PARAM_TYPE_ARRAY)
-      array_empty(param);
+      array_empty(data, param);
     else if (param->has_default_value)
       store_param_value(param, param->default_value);
     else
@@ -270,8 +271,8 @@ try_store_default_value:
   }
 
   if (param->type == _CONFIG_PARAM_TYPE_ARRAY)
-    cJSON_GetArraySize(item) == 0 ? array_empty(param)
-                                  : array_parse(param, item);
+    cJSON_GetArraySize(item) == 0 ? array_empty(data, param)
+                                  : array_parse(data, param, item);
   else {
     get_json_value(item, &value);
     store_param_value(param, value);
@@ -280,7 +281,7 @@ try_store_default_value:
   return true;
 }
 
-size_t _config_parse(struct config_node* node,
+size_t _config_parse(void* data, struct config_node* node,
                      struct _config_param* params, size_t params_count) {
   size_t parsed;
   struct _config_param* param;
@@ -291,7 +292,7 @@ size_t _config_parse(struct config_node* node,
   json_node = unwrap_config_node(node);
 
   for (; params_count > 0; --params_count) {
-    parsed += parse_parameter(json_node, param);
+    parsed += parse_parameter(data, json_node, param);
     ++param;
   }
 

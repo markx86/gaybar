@@ -124,17 +124,20 @@ out_module_name:
   free(widget_name);
 }
 
-static void init_left_side_widget(size_t index, struct config_node* node) {
+static void init_left_side_widget(void* _,
+                                  size_t index, struct config_node* node) {
   UNUSED(index);
   init_widget_from_config(node, ZONE_POSITION_LEFT);
 }
 
-static void init_center_widget(size_t index, struct config_node* node) {
+static void init_center_widget(void* _,
+                               size_t index, struct config_node* node) {
   UNUSED(index);
   init_widget_from_config(node, ZONE_POSITION_CENTER);
 }
 
-static void init_right_side_widget(size_t index, struct config_node* node) {
+static void init_right_side_widget(void* _,
+                                   size_t index, struct config_node* node) {
   UNUSED(index);
   init_widget_from_config(node, ZONE_POSITION_RIGHT);
 }

@@ -7,9 +7,9 @@
 
 struct config_node;
 
-typedef void (*config_array_parse_callback_t)(size_t index,
+typedef void (*config_array_parse_callback_t)(void* data, size_t index,
                                               struct config_node* elem);
-typedef void (*config_array_empty_callback_t)(void);
+typedef void (*config_array_empty_callback_t)(void* data);
 
 /* NOTE: The value stored in parameters of type STRING is a pointer to
  *       heap memory allocated via strdup(..). This means that, once you're done
@@ -42,13 +42,15 @@ struct config_node* config_get_node(struct config_node* node,
                                     const char* name);
 void config_destroy_node(struct config_node* node);
 
-size_t _config_parse(struct config_node* node,
+size_t _config_parse(void* data, struct config_node* node,
                      struct _config_param* params, size_t params_count);
 
-#define CONFIG_PARSE(node, ...)                                \
-  _config_parse(node, (struct _config_param[]) { __VA_ARGS__ },  \
-                sizeof((struct _config_param[]) { __VA_ARGS__ }) \
+#define CONFIG_PARSE_WITH_DATA(data, node, ...)                        \
+  _config_parse(data, node, (struct _config_param[]) { __VA_ARGS__ },  \
+                sizeof((struct _config_param[]) { __VA_ARGS__ })       \
                   / sizeof(struct _config_param))
+
+#define CONFIG_PARSE(node, ...) CONFIG_PARSE_WITH_DATA(NULL, node, __VA_ARGS__)
 
 #define CONFIG_PARAM(...) \
   (struct _config_param) { __VA_ARGS__ }
