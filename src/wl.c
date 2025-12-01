@@ -693,7 +693,7 @@ static void fill_buffer_region(u32 src_x, u32 src_y,
 }
 
 static inline i32 get_offset(struct output* output, struct zone* zone,
-                             u32 offset, u32 position_width) {
+                             u32 position_width, u32 offset) {
   switch (zone->position) {
     case ZONE_POSITION_LEFT:
       return offset;
@@ -706,7 +706,7 @@ static inline i32 get_offset(struct output* output, struct zone* zone,
   }
 }
 
-void wl_draw_zone(struct zone* zone, u32 offset, u32 position_width) {
+void wl_draw_zone(struct zone* zone, u32 position_width, u32 offset) {
   struct output* output;
   i32 start_x, end_x;
   const i32 start_y = 0, end_y = zone->height;
@@ -723,7 +723,7 @@ void wl_draw_zone(struct zone* zone, u32 offset, u32 position_width) {
      *       adapt this.
      */
 
-    start_x = get_offset(output, zone, offset, position_width);
+    start_x = get_offset(output, zone, position_width, offset);
     ASSERT(start_x >= 0);
     ASSERT(start_x <= (i32)(output->surface_width - zone->width));
 
@@ -763,6 +763,59 @@ void wl_clear(u32 color) {
     wmemset((int*)output->buffer, color, output->buffer_size >> 2);
     wl_surface_damage_buffer(output->wl_surface, 0, 0,
                              output->surface_width, output->surface_height);
+    /* Mark the buffer as dirty */
+    output->buffer_dirty = true;
+  }
+}
+
+static inline i32 position_rect_left_side(struct output* output,
+                                          enum zone_position position,
+                                          u32 position_width) {
+  switch (position) {
+    case ZONE_POSITION_LEFT:
+      return 0;
+    case ZONE_POSITION_CENTER:
+      return (output->surface_width - position_width) >> 1;
+    case ZONE_POSITION_RIGHT:
+      return output->surface_width - position_width;
+    case ZONE_POSITION_MAX:
+      log_fatal("invalid zone position %d", position);
+  }
+}
+
+/* NOTE: This only works for horizontal bars.
+ *
+ * This function clears a region @width pixels wide located at @position_offset
+ * pixels from the left side of the rectangle @position_width pixels wide,
+ * specified by @position. See position_rect_left_side(..) to see how the left
+ * side position's along the bar is calculated.
+ */
+void wl_clear_horizontal_region(enum zone_position position, u32 position_width,
+                                u32 position_offset, u32 width, u32 color) {
+  struct output* output;
+  i32 x;
+  u32 y, i;
+
+  list_for_each(output, &g_wl.outputs, link) {
+    if (output->buffer == NULL) {
+      log_warn("output %s (id: %u) has buffer == NULL",
+               output_name(output), output->id);
+      continue;
+    }
+
+    x = position_rect_left_side(output, position, position_width);
+    ASSERT(x >= 0);
+
+    x += position_offset;
+    ASSERT(x <= (i32)(output->surface_width - width));
+
+    for (y = 0; y < output->surface_height; ++y) {
+      i = y * output->surface_width + x;
+      wmemset((int*)&output->buffer[i], color, width);
+    }
+
+    wl_surface_damage_buffer(output->wl_surface, x, 0,
+                             width, output->surface_height);
     /* Mark the buffer as dirty */
     output->buffer_dirty = true;
   }

@@ -34,6 +34,7 @@ struct color      bar_get_foreground_color(void);
 
 struct zone* bar_alloc_zone(enum zone_position position, u32 size);
 void         bar_destroy_zone(struct zone** zonep);
+void         bar_resize_zone(struct zone* zone, u64 width);
 
 void         zone_request_redraw(struct zone* zone);
 b8           zone_should_redraw(struct zone* zone);

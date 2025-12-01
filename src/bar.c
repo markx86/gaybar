@@ -51,8 +51,9 @@ static void render(void) {
   struct zone_private* zone_private;
   list_for_each(zone_private, &g_bar.zones, link) {
     if (zone_private->redraw) {
-      wl_draw_zone(&zone_private->zone, zone_private->offset,
-                   g_bar.sizes[zone_private->zone.position]);
+      wl_draw_zone(&zone_private->zone,
+                   g_bar.sizes[zone_private->zone.position],
+                   zone_private->offset);
       zone_private->redraw = false;
     }
   }
@@ -326,6 +327,12 @@ void bar_cleanup(void) {
   wl_cleanup();
 }
 
+static void alloc_zone_buffer(struct zone* zone) {
+  zone->image_buffer =
+    zalloc(zone->width * zone->height * sizeof(*zone->image_buffer));
+  ASSERT(zone->image_buffer != NULL);
+}
+
 struct zone* bar_alloc_zone(enum zone_position position, u32 size) {
   struct zone_private* zone_private;
   struct zone* zone;
@@ -352,9 +359,7 @@ struct zone* bar_alloc_zone(enum zone_position position, u32 size) {
     zone->width = size;
     zone->height = g_bar.thickness;
   }
-  zone->image_buffer =
-    zalloc(size * g_bar.thickness * sizeof(*zone->image_buffer));
-  ASSERT(zone->image_buffer != NULL);
+  alloc_zone_buffer(zone);
 
   return zone;
 }
@@ -369,6 +374,65 @@ void bar_destroy_zone(struct zone** zonep) {
   destroy_zone_private(zone_private);
 
   *zonep = NULL;
+}
+
+static inline void clear_leftovers(enum zone_position position,
+                                   u32 old_size, u32 new_size) {
+  u32 c = g_bar.background_color.as_u32,
+      s = old_size - new_size,
+      w = old_size;
+
+  if (old_size <= new_size)
+    return;
+
+  switch (position) {
+    case ZONE_POSITION_LEFT:
+      wl_clear_horizontal_region(position, w, new_size, s, c);
+      break;
+    case ZONE_POSITION_CENTER:
+      wl_clear_horizontal_region(position, w, 0, s >> 1, c);
+      wl_clear_horizontal_region(position, w, old_size - (s >> 1), s >> 1, c);
+      break;
+    case ZONE_POSITION_RIGHT:
+      wl_clear_horizontal_region(position, w, 0, s, c);
+      break;
+    case ZONE_POSITION_MAX:
+      log_fatal("invalid zone position %d", position);
+  }
+}
+
+void bar_resize_zone(struct zone* zone, size_t size) {
+  enum zone_position pos;
+  u32 prev_size;
+  struct zone_private* zptr = ZONE_PRIVATE(zone);
+
+  pos = zone->position;
+  /* NOTE: This works for bars that are horizontal. For vertical bars, it
+   *       should be zone->height = size.
+   */
+  zone->width = size;
+  free(zone->image_buffer);
+  alloc_zone_buffer(zone);
+
+  prev_size = g_bar.sizes[pos];
+  /* Recompute offset for each zone */
+  g_bar.sizes[pos] = 0;
+  /* NOTE: We go through the list in reverse, because every new zone is added
+   *       to the head of the list (see wl_list(3)).
+   */
+  list_for_each_reverse(zptr, &g_bar.zones, link) {
+    if (zptr->zone.position == pos) {
+      zptr->offset = g_bar.sizes[pos];
+      /* Force redraw */
+      zptr->redraw = true;
+      /* NOTE: This works for bars that are horizontal. For vertical bars, it
+       *       should be g_bar.sizes[pos] += zptr->zone.height.
+       */
+      g_bar.sizes[pos] += zptr->zone.width;
+    }
+  }
+
+  clear_leftovers(pos, prev_size, g_bar.sizes[pos]);
 }
 
 void zone_request_redraw(struct zone* zone) {
