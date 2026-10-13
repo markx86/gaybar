@@ -35,4 +35,8 @@ static inline void monotonic_time(struct timespec* tm) {
 #define ARRAY_LENGTH(x)  (sizeof(x) / sizeof(*x))
 #define STATIC_STRLEN(x) (sizeof(x) - 1)
 
+#define IS_P2ALING(v, p2)   (((v) & ((p2) - 1UL)) == 0)
+#define P2ALIGN_UP(v, p2)   (((v) + (p2) - 1UL) & ((p2) - 1UL))
+#define P2ALIGN_DOWN(v, p2) ((v) & ((p2) - 1UL))
+
 #endif

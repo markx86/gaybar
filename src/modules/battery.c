@@ -270,7 +270,7 @@ static b8 handle_property(struct battery_instance* instance,
   return false;
 }
 
-/* NOTE: This function modifies buffer */
+/* NOTE: This function modifies the contents of buffer */
 static b8 parse_uevent(struct battery_instance* instance,
                        char* buffer, size_t buffer_size) {
   size_t l;
