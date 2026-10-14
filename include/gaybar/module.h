@@ -5,12 +5,10 @@
 #include <gaybar/list.h>
 #include <gaybar/compiler.h>
 #include <gaybar/assert.h>
-#include <gaybar/config.h>
 #include <gaybar/bar.h>
 
 struct module_init_data {
   enum zone_position position;
-  struct config_node* config;
   struct color foreground_color;
   struct color background_color;
 };
@@ -36,7 +34,6 @@ extern struct list g_modules;
 struct module* module_find_by_name(const char* name);
 
 struct module_instance* module_init(struct module* module,
-                                    struct config_node* config,
                                     enum zone_position position);
 void module_render(struct module_instance* instance);
 void module_cleanup(struct module_instance* instance);

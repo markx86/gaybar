@@ -474,30 +474,20 @@ static char* find_font_by_name(const char* font_name) {
 }
 
 static void parse_config(void) {
-  long font_size;
+  i64 font_size;
   char *font_path, *font_name;
-  struct config_node* font_node = config_get_node(CONFIG_ROOT, "font");
 
-  CONFIG_PARSE(font_node,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("path"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(font_path),
-      CONFIG_PARAM_DEFAULT(NULL)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("name"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(font_name),
-      CONFIG_PARAM_DEFAULT(FONT_DEFAULT_NAME)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("size"),
-      CONFIG_PARAM_TYPE(INTEGER),
-      CONFIG_PARAM_STORE(font_size),
-      CONFIG_PARAM_DEFAULT(FONT_DEFAULT_SIZE)
-    )
-  );
+  if (!config_has_key("font")) {
+    font_path = NULL;
+    font_name = strdup(FONT_DEFAULT_NAME);
+    font_size = FONT_DEFAULT_SIZE;
+  } else {
+    config_parse_object_with_key("font") {
+      font_path = config_get_string_by_key("path", NULL);
+      font_name = config_get_string_by_key("name", FONT_DEFAULT_NAME);
+      font_size = config_get_int_by_key("size", FONT_DEFAULT_SIZE);
+    }
+  }
 
   if (font_path == NULL) {
     font_path = find_font_by_name(font_name);
@@ -515,8 +505,6 @@ static void parse_config(void) {
     font_size = FONT_DEFAULT_SIZE;
   }
   g_font.size_in_pixels = font_size;
-
-  config_destroy_node(font_node);
 }
 
 int font_init(void) {

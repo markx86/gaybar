@@ -8,6 +8,7 @@
 #include <gaybar/module.h>
 #include <gaybar/sched.h>
 #include <gaybar/font.h>
+#include <gaybar/config.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -81,161 +82,87 @@ static enum bar_position position_from_string(const char* s) {
   }
 }
 
-static void init_widget_from_config(struct config_node* node,
-                                    enum zone_position position) {
-  char* widget_name;
-  struct config_node* config;
+static void init_widget(char* widget_name, enum zone_position position) {
   struct module* module;
   struct module_instance* instance;
   struct widget* widget;
 
-  CONFIG_PARSE(node,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME(CONFIG_PARAM_SELF),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(widget_name)
-    )
-  );
   ASSERT(widget_name != NULL);
 
   module = module_find_by_name(widget_name);
   if (module == NULL) {
     log_error("no module widget '%s' found", widget_name);
-    goto out_module_name;
+    goto out;
   }
 
-  config = config_get_node(CONFIG_ROOT, widget_name);
+  config_with_root_context() {
+    config_parse_object_with_key(widget_name) {
+      instance = module_init(module, position);
+      if (instance == NULL) {
+        log_error("could not initialize module '%s'",
+                  widget_name);
+        break;
+      }
 
-  instance = module_init(module, config, position);
-  if (instance == NULL) {
-    log_error("could not initialize module '%s'",
-              widget_name);
-    goto out_config;
+      widget = zalloc(sizeof(*widget));
+      ASSERT(widget != NULL);
+
+      widget->instance = instance;
+      list_insert(&g_widgets, &widget->link);
+    }
   }
 
-  widget = zalloc(sizeof(*widget));
-  ASSERT(widget != NULL);
-
-  widget->instance = instance;
-  list_insert(&g_widgets, &widget->link);
-
-out_config:
-  config_destroy_node(config);
-out_module_name:
+out:
   free(widget_name);
 }
 
-static void init_left_side_widget(void* _,
-                                  size_t index, struct config_node* node) {
-  UNUSED(index);
-  init_widget_from_config(node, ZONE_POSITION_LEFT);
-}
+static void init_widgets_from_zone(enum zone_position pos) {
+  size_t i;
+  const char* pos_key = pos == ZONE_POSITION_LEFT   ? "left" :
+                        pos == ZONE_POSITION_CENTER ? "center" :
+                        pos == ZONE_POSITION_RIGHT  ? "right" :
+                        NULL;
 
-static void init_center_widget(void* _,
-                               size_t index, struct config_node* node) {
-  UNUSED(index);
-  init_widget_from_config(node, ZONE_POSITION_CENTER);
-}
+  ASSERT(pos_key != NULL);
 
-static void init_right_side_widget(void* _,
-                                   size_t index, struct config_node* node) {
-  UNUSED(index);
-  init_widget_from_config(node, ZONE_POSITION_RIGHT);
+  config_parse_array_with_key(pos_key) {
+    for (i = 0; i < config_get_array_length(); ++i)
+      init_widget(config_get_string_by_idx(i, NULL), pos);
+  }
 }
 
 static void init_widgets(void) {
-  struct config_node* widgets_node;
-
   list_init(&g_widgets);
 
-  widgets_node = config_get_node(CONFIG_ROOT, "widgets");
-  CONFIG_PARSE(widgets_node,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("left"),
-      CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(init_left_side_widget),
-    )
-  );
-  CONFIG_PARSE(widgets_node,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("center"),
-      CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(init_center_widget),
-    )
-  );
-  CONFIG_PARSE(widgets_node,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("right"),
-      CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(init_right_side_widget),
-    )
-  );
-  config_destroy_node(widgets_node);
+  config_parse_object_with_key("widgets") {
+    init_widgets_from_zone(ZONE_POSITION_LEFT);
+    init_widgets_from_zone(ZONE_POSITION_CENTER);
+    init_widgets_from_zone(ZONE_POSITION_RIGHT);
+  }
 }
 
 static void get_colors(struct color* background_color,
                        struct color* foreground_color) {
-  struct config_node* colors;
-  char *foreground_color_hex, *background_color_hex;
+  ASSERT(color_from_hex(BAR_DEFAULT_COLOR_BACKGROUND, background_color));
+  ASSERT(color_from_hex(BAR_DEFAULT_COLOR_FOREGROUND, foreground_color));
 
-  colors = config_get_node(CONFIG_ROOT, "colors");
-  if (colors == NULL) {
-    background_color_hex = BAR_DEFAULT_COLOR_BACKGROUND;
-    foreground_color_hex = BAR_DEFAULT_COLOR_FOREGROUND;
-  } else {
-    CONFIG_PARSE(colors,
-      CONFIG_PARAM(
-        CONFIG_PARAM_NAME("foreground"),
-        CONFIG_PARAM_TYPE(STRING),
-        CONFIG_PARAM_STORE(foreground_color_hex),
-        CONFIG_PARAM_DEFAULT(BAR_DEFAULT_COLOR_FOREGROUND)
-      ),
-      CONFIG_PARAM(
-        CONFIG_PARAM_NAME("background"),
-        CONFIG_PARAM_TYPE(STRING),
-        CONFIG_PARAM_STORE(background_color_hex),
-        CONFIG_PARAM_DEFAULT(BAR_DEFAULT_COLOR_BACKGROUND)
-      )
-    );
+  config_parse_object_with_key("colors") {
+    *background_color =
+      config_get_color_by_key("background", *background_color);
+    *foreground_color =
+      config_get_color_by_key("foreground", *foreground_color);
   }
-
-  if (!color_from_hex(background_color_hex, background_color))
-    ASSERT(color_from_hex(BAR_DEFAULT_COLOR_BACKGROUND, background_color));
-  if (!color_from_hex(foreground_color_hex, foreground_color))
-    ASSERT(color_from_hex(BAR_DEFAULT_COLOR_FOREGROUND, foreground_color));
-
-  /* If the config node is not NULL then these values have been strduped
-   * by CONFIG_PARSE(..).
-   */
-  if (colors != NULL) {
-    free(background_color_hex);
-    free(foreground_color_hex);
-  }
-
-  config_destroy_node(colors);
 }
 
 int bar_init(void) {
   int rc;
   enum bar_position position;
   char* position_value;
-  long thickness;
+  i64 thickness;
   struct color background_color, foreground_color;
 
-  CONFIG_PARSE(CONFIG_ROOT,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("position"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(position_value),
-      CONFIG_PARAM_DEFAULT(BAR_DEFAULT_POSITION)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("thickness"),
-      CONFIG_PARAM_TYPE(INTEGER),
-      CONFIG_PARAM_STORE(thickness),
-      CONFIG_PARAM_DEFAULT(BAR_DEFAULT_THICKNESS)
-    )
-  );
+  position_value = config_get_string_by_key("position", BAR_DEFAULT_POSITION);
+  thickness = config_get_int_by_key("thickness", BAR_DEFAULT_THICKNESS);
 
   position = position_from_string(position_value);
   free(position_value);

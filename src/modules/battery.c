@@ -5,6 +5,7 @@
 #include <gaybar/sched.h>
 #include <gaybar/font.h>
 #include <gaybar/format.h>
+#include <gaybar/config.h>
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -424,25 +425,6 @@ static void get_battery_path(char* buffer, size_t buffer_size,
   ASSERT(written < buffer_size);
 }
 
-static void parse_icons(void* data, size_t index, struct config_node* node) {
-  struct battery_instance* instance = data;
-  struct battery_icons* icons = &instance->icons;
-  size_t array_index = icons->length++;
-
-  /* FIXME: This is kinda inefficient */
-  icons->array = realloc(icons->array, icons->length * sizeof(*icons->array));
-
-  CONFIG_PARSE(node,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME(CONFIG_PARAM_SELF),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(icons->array[array_index])
-    )
-  );
-
-  UNUSED(index);
-}
-
 static void free_icons(struct battery_instance* instance) {
   size_t i;
   struct battery_icons* icons = &instance->icons;
@@ -473,6 +455,7 @@ static void battery_cleanup(void* instance_ptr) {
 
 static void* battery_init(struct module_init_data* init_data) {
   int rc;
+  size_t i;
   struct battery_instance* instance;
   enum acpi_mode acpi_mode;
   char uevent_path[sizeof(BATTERY_PATH) * 2];
@@ -480,31 +463,21 @@ static void* battery_init(struct module_init_data* init_data) {
   instance = zalloc(sizeof(*instance));
   ASSERT(instance != NULL);
 
-  CONFIG_PARSE_WITH_DATA(instance, init_data->config,
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("name"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(instance->name),
-      CONFIG_PARAM_DEFAULT(BATTERY_DEFAULT_NAME)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("format"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(instance->format),
-      CONFIG_PARAM_DEFAULT(BATTERY_DEFAULT_FORMAT)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("format-alt"),
-      CONFIG_PARAM_TYPE(STRING),
-      CONFIG_PARAM_STORE(instance->format_alt),
-      CONFIG_PARAM_DEFAULT(BATTERY_DEFAULT_FORMAT_ALT)
-    ),
-    CONFIG_PARAM(
-      CONFIG_PARAM_NAME("icons"),
-      CONFIG_PARAM_TYPE(ARRAY),
-      CONFIG_PARAM_STORE(parse_icons),
-    )
-  );
+  instance->name =
+    config_get_string_by_key("name", BATTERY_DEFAULT_NAME);
+  instance->format =
+    config_get_string_by_key("format", BATTERY_DEFAULT_FORMAT);
+  instance->format_alt =
+    config_get_string_by_key("format-alt", BATTERY_DEFAULT_FORMAT_ALT);
+
+  config_parse_array_with_key("icons") {
+    instance->icons.length = config_get_array_length();
+    instance->icons.array =
+      zalloc(instance->icons.length * sizeof(*instance->icons.array));
+
+    for (i = 0; i < instance->icons.length; ++i)
+      instance->icons.array[i] = config_get_string_by_idx(i, NULL);
+  }
 
   get_battery_path(uevent_path, sizeof(uevent_path), instance->name);
 

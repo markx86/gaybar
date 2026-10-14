@@ -22,12 +22,14 @@
 STATIC_ASSERT(sizeof(void*) == sizeof(uintptr_t));
 STATIC_ASSERT(sizeof(uintptr_t) == sizeof(double));
 
+static struct config_node* g_current;
 static cJSON* g_root;
 static char g_config_path[PATH_MAX];
 
 struct config_node {
   char* name;
   struct config_node* parent;
+  struct config_node* prev;
   cJSON* json;
 };
 
@@ -35,10 +37,6 @@ struct config_node {
   snprintf(g_config_path, sizeof(g_config_path), x, ##__VA_ARGS__)
 
 #define CONFIG_PATH "gaybar/config.jsonc"
-
-static inline cJSON* unwrap_config_node(struct config_node* node) {
-  return node == CONFIG_ROOT ? g_root : node->json;
-}
 
 static inline b8 can_read_config_file(void) {
   return access(g_config_path, R_OK) == 0;
@@ -120,202 +118,181 @@ void config_load(void) {
     log_error("failed to parse config file");
 
   unload_config_file(content, content_size);
+
+  ASSERT(_config_push_root());
 }
 
 void config_unload(void) {
   cJSON_Delete(g_root);
 }
 
-static inline b8 is_int(double x) {
-  return (x - (double)((i64)x)) == 0.0;
+static void destroy_node(struct config_node* node) {
+  if (node->name != NULL)
+    free(node->name);
+  free(node);
 }
 
-static b8 is_same_type(struct _config_param* param, cJSON* json) {
-  switch (param->type) {
-    case _CONFIG_PARAM_TYPE_INTEGER:
-      return cJSON_IsNumber(json) &&
-             is_int(cJSON_GetNumberValue(json));
-    case _CONFIG_PARAM_TYPE_FLOAT:
-      return cJSON_IsNumber(json);
-    case _CONFIG_PARAM_TYPE_STRING:
-      return cJSON_IsString(json);
-    case _CONFIG_PARAM_TYPE_BOOL:
-      return cJSON_IsBool(json);
-    case _CONFIG_PARAM_TYPE_ARRAY:
-      return cJSON_IsArray(json);
-
-    default:
-      /* FIXME: Print full json path of parameter */
-      log_fatal("invalid configuration parameter type #%d for parameter %s",
-                param->type, param->name);
-  }
-}
-
-static const char* param_type_string(struct _config_param* param) {
-  switch (param->type) {
-    case _CONFIG_PARAM_TYPE_INTEGER:
-      return "INTEGER";
-    case _CONFIG_PARAM_TYPE_FLOAT:
-      return "FLOAT";
-    case _CONFIG_PARAM_TYPE_STRING:
-      return "STRING";
-    case _CONFIG_PARAM_TYPE_BOOL:
-      return "BOOL";
-    case _CONFIG_PARAM_TYPE_ARRAY:
-      return "ARRAY";
-    default:
-      return "(invalid type)";
-  }
-}
-
-static const char* json_type_string(cJSON* json) {
-  if (cJSON_IsNumber(json))
-    return is_int(cJSON_GetNumberValue(json)) ? "INTEGER"
-                                              : "FLOAT";
-  else if (cJSON_IsBool(json))
-    return "BOOL";
-  else if (cJSON_IsString(json))
-    return "STRING";
-  else if (cJSON_IsArray(json))
-    return "ARRAY";
+static char* key_to_name(const void* key, b8 is_index) {
+  char buf[64];
+  if (is_index)
+    snprintf(buf, sizeof(buf), "[%zu]", (size_t)key);
   else
-    return "(invalid type)";
+    snprintf(buf, sizeof(buf), ".%s", (const char*)key);
+  return strdup(buf);
 }
 
-static void store_param_value(struct _config_param* param, void* value) {
-  switch (param->type) {
-  case _CONFIG_PARAM_TYPE_INTEGER:
-    *((long*)param->store) = (long)value;
-    break;
-
-  case _CONFIG_PARAM_TYPE_FLOAT:
-    *((double*)param->store) = *(double*)&value;
-    break;
-
-  case _CONFIG_PARAM_TYPE_STRING:
-    *((char**)param->store) = value != NULL ? strdup(value) : NULL;
-    break;
-
-  default:
-    ASSERT(false && "unreachable");
-  }
-}
-
-static void get_json_value(cJSON* item, void** out) {
-  double number;
-
-  if (cJSON_IsNumber(item)) {
-    number = cJSON_GetNumberValue(item);
-    *out = (void*)
-      (is_int(cJSON_GetNumberValue(item)) ? (intptr_t)number
-                                          : *(intptr_t*)&number);
-  }
-  else if (cJSON_IsBool(item))
-    *out = (void*)(uintptr_t)(cJSON_IsTrue(item) ? true : false);
-  else if (cJSON_IsString(item))
-    *out = cJSON_GetStringValue(item);
+static char* get_node_path_recursive(struct config_node* node,
+                                     char* buffer, char* const buffer_end) {
+  if (node->parent != NULL)
+    buffer = get_node_path_recursive(node->parent, buffer, buffer_end);
+  if (node->name == NULL || buffer >= buffer_end)
+    return buffer;
   else
-    ASSERT(false && "unreachable");
+    return stpncpy(buffer, node->name, buffer_end - buffer);
 }
 
-static void array_parse(void* data, struct _config_param* param, cJSON* array) {
-  size_t i;
-  cJSON* elem;
-  config_array_parse_callback_t cb;
+/* NOTE: This function is not thread safe! */
+const char* _config_get_path(const void* key, b8 is_index) {
+  static char tmp_buffer[0x200];
 
-  cb = param->store;
-  ASSERT(cb != NULL);
+  char *buffer, *buffer_end, *node_name;
 
-  i = 0;
-  cJSON_ArrayForEach(elem, array)
-    cb(data, i++, &((struct config_node) { .json = elem }));
-}
+  node_name = key_to_name(key, is_index);
+  ASSERT(node_name != NULL);
 
-static void array_empty(void* data, struct _config_param* param) {
-  config_array_empty_callback_t cb = param->default_value;
-  if (param->has_default_value) {
-    ASSERT(cb != NULL);
-    cb(data);
-  }
-}
+  buffer_end = tmp_buffer + sizeof(tmp_buffer) - 1;
+  buffer = get_node_path_recursive(g_current, tmp_buffer, buffer_end);
 
-static inline cJSON* item_by_name(cJSON* container, const char* name) {
-  return name == CONFIG_PARAM_SELF ? container
-                                   : cJSON_GetObjectItem(container, name);
-}
-
-static b8 parse_parameter(void* data, cJSON* container,
-                          struct _config_param* param) {
-  cJSON* item;
-  void* value;
-
-  item = item_by_name(container, param->name);
-  if (item == NULL) {
-try_store_default_value:
-    /* That parameter has not value specified in the configuration file */
-    if (param->type == _CONFIG_PARAM_TYPE_ARRAY)
-      array_empty(data, param);
-    else if (param->has_default_value)
-      store_param_value(param, param->default_value);
-    else
-      log_fatal("missing required configuration parameter '%s' of type %s",
-                param->name, param_type_string(param));
-    return false;
-  }
-
-  if (!is_same_type(param, item)) {
-    log_error("type mismatch for configuration parameter %s", param->name);
-    log_error("expected %s, but got %s",
-              param_type_string(param), json_type_string(item));
-    goto try_store_default_value;
-  }
-
-  if (param->type == _CONFIG_PARAM_TYPE_ARRAY)
-    cJSON_GetArraySize(item) == 0 ? array_empty(data, param)
-                                  : array_parse(data, param, item);
+  if (buffer < buffer_end)
+    strncpy(buffer, node_name, buffer_end - buffer);
   else {
-    get_json_value(item, &value);
-    store_param_value(param, value);
+    buffer_end[-3] = '.';
+    buffer_end[-2] = '.';
+    buffer_end[-1] = '.';
   }
+
+  *buffer_end = '\0';
+  free(node_name);
+
+  return tmp_buffer;
+}
+
+static inline cJSON* unwrap_node(struct config_node* node) {
+  return node == CONFIG_ROOT ? g_root : node->json;
+}
+
+static struct config_node* wrap_node(struct config_node* parent,
+                                     cJSON* jnode, char* name) {
+  struct config_node* node = zalloc(sizeof(*node));
+  ASSERT(node != NULL);
+  node->parent = parent;
+  node->json = jnode;
+  node->name = name;
+  node->prev = NULL;
+  return node;
+}
+
+b8 _config_push_root(void) {
+  return _config_push(wrap_node(NULL, g_root, NULL));
+}
+
+b8 _config_push(struct config_node* node) {
+  if (node == NULL)
+    return false;
+
+  node->prev = g_current;
+  g_current = node;
 
   return true;
 }
 
-size_t _config_parse(void* data, struct config_node* node,
-                     struct _config_param* params, size_t params_count) {
-  size_t parsed;
-  struct _config_param* param;
-  cJSON* json_node;
+b8 _config_pop(void) {
+  struct config_node* popped;
 
-  parsed = 0;
-  param = params;
-  json_node = unwrap_config_node(node);
+  if (g_current == NULL)
+    return false;
 
-  for (; params_count > 0; --params_count) {
-    parsed += parse_parameter(data, json_node, param);
-    ++param;
-  }
+  popped = g_current;
+  g_current = g_current->prev;
+  destroy_node(popped);
 
-  return parsed;
+  return true;
 }
 
-struct config_node* config_get_node(struct config_node* parent,
-                                    const char* name) {
-  struct config_node* node = zalloc(sizeof(*node));
-  ASSERT(node != NULL);
-  node->name = strdup(name);
-  node->parent = parent;
-  node->json = cJSON_GetObjectItem(unwrap_config_node(parent), name);
-  return node;
+static inline b8 is_int(double x) {
+  return (x - (double)((i64)x)) == 0.0;
 }
 
-void config_destroy_node(struct config_node* node) {
-  /* We do not delete the cJSON pointer inside the node, because it will
-   * be deleted by config_unload(..) and somebody else might request the
-   * a the same node.
-   *
-   * NOTE: Should we refcount the struct instead?
-   */
-  free(node->name);
-  free(node);
+static inline cJSON* get_json_node_by_key(cJSON* jnode,
+                                          const void* key, b8 is_index) {
+  return is_index ? cJSON_GetArrayItem(jnode, (size_t)key)
+                  : cJSON_GetObjectItem(jnode, key);
+}
+
+struct config_node* _config_get_parent(struct config_node* node) {
+  return node->parent;
+}
+
+size_t config_get_array_length(void) {
+  cJSON* jnode = unwrap_node(g_current);
+  return cJSON_IsArray(jnode) ? cJSON_GetArraySize(jnode) : 0;
+}
+
+b8 config_has_key(const char* k) {
+  cJSON* jnode = unwrap_node(g_current);
+  return cJSON_IsObject(jnode) && cJSON_HasObjectItem(jnode, k);
+}
+
+_CONFIG_GENERIC_GETTER(char*, string) {
+  cJSON* value = get_json_node_by_key(unwrap_node(g_current), key, is_index);
+
+  if (value == NULL || !cJSON_IsString(value))
+    return def == NULL ? NULL : strdup(def);
+  else
+    return strdup(cJSON_GetStringValue(value));
+}
+
+_CONFIG_GENERIC_GETTER(f64, float) {
+  cJSON* value = get_json_node_by_key(unwrap_node(g_current), key, is_index);
+
+  if (value == NULL || !cJSON_IsNumber(value))
+    return def;
+  else
+    return cJSON_GetNumberValue(value);
+}
+
+_CONFIG_GENERIC_GETTER(i64, int) {
+  f64 val;
+  cJSON* value = get_json_node_by_key(unwrap_node(g_current), key, is_index);
+
+  if (value == NULL || !cJSON_IsNumber(value))
+    return def;
+  else
+    return is_int(val = cJSON_GetNumberValue(value)) ? (i64)val : def;
+}
+
+_CONFIG_GENERIC_GETTER(struct config_node*, object) {
+  cJSON* value = get_json_node_by_key(unwrap_node(g_current), key, is_index);
+  if (value == NULL || !cJSON_IsObject(value))
+    return def;
+  else
+    return wrap_node(g_current, value, key_to_name(key, is_index));
+}
+
+_CONFIG_GENERIC_GETTER(struct config_node*, array) {
+  cJSON* value = get_json_node_by_key(unwrap_node(g_current), key, is_index);
+  if (value == NULL || !cJSON_IsArray(value))
+    return def;
+  else
+    return wrap_node(g_current, value, key_to_name(key, is_index));
+}
+
+_CONFIG_GENERIC_GETTER(struct color, color) {
+  struct color color;
+  cJSON* value = get_json_node_by_key(unwrap_node(g_current), key, is_index);
+
+  if (value == NULL || !cJSON_IsString(value))
+    return def;
+
+  return color_from_hex(cJSON_GetStringValue(value), &color) ? color : def;
 }
