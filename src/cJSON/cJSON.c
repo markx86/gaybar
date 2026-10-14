@@ -117,7 +117,7 @@ CJSON_PUBLIC(double) cJSON_GetNumberValue(const cJSON * const item)
 }
 
 /* This is a safeguard to prevent copy-pasters from using incompatible C and header files */
-#if (CJSON_VERSION_MAJOR != 1) || (CJSON_VERSION_MINOR != 7) || (CJSON_VERSION_PATCH != 18)
+#if (CJSON_VERSION_MAJOR != 1) || (CJSON_VERSION_MINOR != 7) || (CJSON_VERSION_PATCH != 19)
     #error cJSON.h and cJSON.c have different versions. Make sure that both have the same.
 #endif
 
@@ -410,6 +410,11 @@ loop_end:
 /* don't ask me, but the original cJSON_SetNumberValue returns an integer or double */
 CJSON_PUBLIC(double) cJSON_SetNumberHelper(cJSON *object, double number)
 {
+    if (object == NULL)
+    {
+        return (double)NAN;
+    }
+
     if (number >= INT_MAX)
     {
         object->valueint = INT_MAX;
@@ -1135,6 +1140,31 @@ static parse_buffer *buffer_skip_whitespace_and_comments(parse_buffer * const bu
     return buffer;
 }
 
+static int has_dangling_comma(parse_buffer * const buffer, char expected_char) {
+    size_t saved_buffer_offset = 0;
+
+    if (cannot_access_at_index(buffer, 0) || buffer_at_offset(buffer)[0] != ',')
+    {
+        /* the last character wasn't even a comma, so there's nothing to do */
+        return 0;
+    }
+
+    saved_buffer_offset = buffer->offset++;
+    buffer_skip_whitespace_and_comments(buffer);
+
+    if (can_access_at_index(buffer, 0) && buffer_at_offset(buffer)[0] == expected_char)
+    {
+        /* if the next character is a '}', we have reached the end of the object */
+        return 1;
+    }
+    else
+    {
+        /* otherwise, we still have to parse stuff so we have to restore the old offset and keep parsing */
+        buffer->offset = saved_buffer_offset;
+        return 0;
+    }
+}
+
 /* skip the UTF-8 BOM (byte order mark) if it is at the beginning of a buffer */
 static parse_buffer *skip_utf8_bom(parse_buffer * const buffer)
 {
@@ -1554,6 +1584,11 @@ static cJSON_bool parse_array(cJSON * const item, parse_buffer * const input_buf
     /* loop through the comma separated array elements */
     do
     {
+        if (has_dangling_comma(input_buffer, ']'))
+        {
+            goto success;
+        }
+
         /* allocate next item */
         cJSON *new_item = cJSON_New_Item(&(input_buffer->hooks));
         if (new_item == NULL)
@@ -1624,6 +1659,11 @@ static cJSON_bool print_array(const cJSON * const item, printbuffer * const outp
     if (output_buffer == NULL)
     {
         return false;
+    }
+
+    if (output_buffer->depth >= CJSON_NESTING_LIMIT)
+    {
+        return false; /* nesting is too deep */
     }
 
     /* Compose the output array. */
@@ -1712,6 +1752,12 @@ static cJSON_bool parse_object(cJSON * const item, parse_buffer * const input_bu
     /* loop through the comma separated array elements */
     do
     {
+        /* check if there's a dangling comma */
+        if (has_dangling_comma(input_buffer, '}'))
+        {
+            goto success;
+        }
+
         /* allocate next item */
         cJSON *new_item = cJSON_New_Item(&(input_buffer->hooks));
         if (new_item == NULL)
@@ -1804,6 +1850,11 @@ static cJSON_bool print_object(const cJSON * const item, printbuffer * const out
     if (output_buffer == NULL)
     {
         return false;
+    }
+
+    if (output_buffer->depth >= CJSON_NESTING_LIMIT)
+    {
+        return false; /* nesting is too deep */
     }
 
     /* Compose the output: */
