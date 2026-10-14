@@ -101,6 +101,31 @@ static void unload_config_file(char* buffer, size_t buffer_size) {
   ASSERT(munmap(buffer, buffer_size) == 0);
 }
 
+/* NOTE: This function is not thread safe! */
+static const char* json_error_pos(const char* content, size_t content_size) {
+  static char error_location[0x100];
+
+  size_t line, chr;
+  const char *next_line, *content_end, *errorp = cJSON_GetErrorPtr();
+  ASSERT(errorp != NULL);
+
+  content_end = content + content_size;
+
+  for (line = 1; content < content_end; content = next_line + 1) {
+    next_line = memchr(content, '\n', content_end - content);
+    if (next_line == NULL || next_line > errorp)
+      break;
+    ++line;
+  }
+
+  chr = errorp - content + 1;
+
+  snprintf(error_location, sizeof(error_location), "%s:%zu:%zu",
+           g_config_path, line, chr);
+
+  return error_location;
+}
+
 void config_load(void) {
   char* content;
   size_t content_size;
@@ -113,9 +138,11 @@ void config_load(void) {
   content = load_config_file(&content_size);
 
   g_root = cJSON_ParseWithLength(content, content_size);
-  if (g_root == NULL)
+  if (g_root == NULL) {
     /* FIXME: Print where the error is */
-    log_error("failed to parse config file");
+    log_error("failed to parse config file %s",
+              json_error_pos(content, content_size));
+  }
 
   unload_config_file(content, content_size);
 
