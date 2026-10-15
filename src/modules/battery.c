@@ -42,22 +42,36 @@ enum battery_status {
 struct battery_info {
   enum acpi_mode mode;
   enum battery_status status;
-  u64 percentage;
-  u64 capacity_max;
-  u64 capacity_now;
-  u64 consumption_avg;
+  i64 percentage;
+  i64 display_percentage;
+  i64 capacity_max;
+  i64 capacity_now;
+  i64 consumption_avg;
 };
 
 struct battery_samples {
   size_t index;
-  u64 values[AVG_SAMPLES];
+  i64 values[AVG_SAMPLES];
 };
 
 struct battery_icons {
-  char** array;
-  size_t length;
+  size_t num_discharging;
+  char** discharging;
   char* charging;
   char* plugged;
+  char* critical;
+};
+
+struct battery_colors {
+  struct color bg;
+  struct color fg;
+  struct color fg_charging;
+  struct color fg_low;
+  struct color fg_critical;
+};
+
+struct battery_levels {
+  i64 critical, low, full;
 };
 
 struct battery_instance {
@@ -67,16 +81,32 @@ struct battery_instance {
   struct battery_icons icons;
   int uevent_fd;
   struct battery_info info;
+  struct battery_colors colors;
+  struct battery_levels levels;
   struct battery_samples consumption_ring;
   struct zone* zone;
-  struct color bg_color;
-  struct color fg_color;
 };
 
 static i64 g_task_id = -1;
 static struct list g_instances = LIST_UNINITIALIZED;
 
 MODULE("battery", "markx86", "Display battery information.");
+
+static inline struct color color_bg(struct battery_instance* instance) {
+  return instance->colors.bg;
+}
+
+static struct color color_fg(struct battery_instance* instance) {
+  if /**/ (instance->info.status == BATTERY_STATUS_CHARGING
+           || instance->info.status == BATTERY_STATUS_PLUGGED)
+    return instance->colors.fg_charging;
+  else if (instance->info.display_percentage <= instance->levels.critical)
+    return instance->colors.fg_critical;
+  else if (instance->info.display_percentage <= instance->levels.low)
+    return instance->colors.fg_low;
+  else
+    return instance->colors.fg;
+}
 
 static void reset_consumption_ring(struct battery_instance* instance) {
   struct battery_samples* ring = &instance->consumption_ring;
@@ -163,15 +193,15 @@ static void parse_uevent_line(char* s, const char** key, const char** value) {
   *value = separator + 1;
 }
 
-static b8 parse_u64(u64* out, const char* value) {
+static b8 parse_i64(i64* out, const char* value) {
   b8 changed;
-  u64 parsed;
+  i64 parsed;
   char* endptr;
 
   endptr = NULL;
   changed = false;
 
-  parsed = strtoul(value, &endptr, 0);
+  parsed = strtol(value, &endptr, 0);
 
   if (endptr == NULL || (endptr != value && *endptr != '\0')) {
     module_error("could not parse %s as an unsigned integer", value);
@@ -210,11 +240,11 @@ static b8 parse_consumption(struct battery_instance* instance,
                             const char* value) {
   b8 changed;
   size_t i, count;
-  u64 avg, val;
+  i64 avg, val;
   struct battery_samples* ring = &instance->consumption_ring;
 
   val = -1;
-  if (!parse_u64(&val, value))
+  if (!parse_i64(&val, value))
     return false;
 
   ring->values[ring->index++] = val;
@@ -223,7 +253,7 @@ static b8 parse_consumption(struct battery_instance* instance,
 
   avg = count = 0;
   for (i = 0; i < ARRAY_LENGTH(ring->values); ++i) {
-    if ((val = ring->values[i]) != (u64)-1) {
+    if ((val = ring->values[i]) != -1) {
       avg += val;
       ++count;
     }
@@ -250,9 +280,15 @@ static b8 handle_property(struct battery_instance* instance,
    */
 
   /* Generic specific properties */
-  if (!strcmp(key, "POWER_SUPPLY_CAPACITY"))
-    return parse_u64(&info->percentage, value);
-  else if (!strcmp(key, "POWER_SUPPLY_STATUS")) {
+  if (!strcmp(key, "POWER_SUPPLY_CAPACITY")) {
+    status_changed = parse_i64(&info->percentage, value);
+    if (status_changed) {
+      info->display_percentage =
+        clamp(roundf(info->percentage / (f32)instance->levels.full * 100.0f),
+              0, 100);
+    }
+    return status_changed;
+  } else if (!strcmp(key, "POWER_SUPPLY_STATUS")) {
     status_changed = parse_status(&info->status, value);
     if (status_changed)
       reset_consumption_ring(instance);
@@ -261,16 +297,16 @@ static b8 handle_property(struct battery_instance* instance,
   /* ACPI mode specific properties */
   } else if (info->mode == ACPI_MODE_CHARGE) {
     if (!strcmp(key, PREFIX_CHARGE "FULL"))
-      return parse_u64(&info->capacity_max, value);
+      return parse_i64(&info->capacity_max, value);
     else if (!strcmp(key, PREFIX_CHARGE "NOW"))
-      return parse_u64(&info->capacity_now, value);
+      return parse_i64(&info->capacity_now, value);
     else if (!strcmp(key, "POWER_SUPPLY_CURRENT_NOW"))
       return parse_consumption(instance, value);
   } else if (info->mode == ACPI_MODE_ENERGY) {
     if (!strcmp(key, PREFIX_ENERGY "FULL"))
-      return parse_u64(&info->capacity_max, value);
+      return parse_i64(&info->capacity_max, value);
     else if (!strcmp(key, PREFIX_ENERGY "NOW"))
-      return parse_u64(&info->capacity_now, value);
+      return parse_i64(&info->capacity_now, value);
     else if (!strcmp(key, "POWER_SUPPLY_POWER_NOW"))
       return parse_consumption(instance, value);
   }
@@ -328,11 +364,16 @@ static const char* get_icon(struct battery_instance* instance) {
       && icons->plugged != NULL)
     return icons->plugged;
 
-  if (icons->length == 0)
+  if (icons->num_discharging == 0)
     return "?";
 
-  index = ((f32)instance->info.percentage / 100.0f) * icons->length;
-  return icons->array[index];
+  if (instance->info.display_percentage < instance->levels.critical
+      && icons->critical != NULL)
+    return icons->critical;
+
+  index = ((f32)instance->info.display_percentage / (f32)instance->levels.full)
+            * icons->num_discharging;
+  return icons->discharging[clamp(index, 0, icons->num_discharging - 1)];
 }
 
 static size_t time_formatter(char* buffer, size_t buffer_size, void* val) {
@@ -362,7 +403,8 @@ static void generate_instance_text(struct battery_instance* instance,
   i8 hours, minutes;
   get_time_left(instance, &hours, &minutes);
   get_formatted_text(buffer, buffer_size, format,
-                     instance, hours, minutes, instance->info.percentage);
+                     instance, hours, minutes,
+                     instance->info.display_percentage);
 }
 
 static size_t string_width(const char* str) {
@@ -393,8 +435,8 @@ static void battery_render(void* instance_ptr) {
     draw_rect(draw,
               0, 0,
               draw_width(draw), draw_height(draw),
-              instance->bg_color.as_u32);
-    draw_string(draw, 4, 0, buffer, instance->fg_color.as_u32);
+              color_bg(instance).as_u32);
+    draw_string(draw, 4, 0, buffer, color_fg(instance).as_u32);
   }
 }
 
@@ -445,12 +487,18 @@ static void free_icons(struct battery_instance* instance) {
   size_t i;
   struct battery_icons* icons = &instance->icons;
 
-  for (i = 0; i < icons->length; ++i)
-    free(icons->array[i]);
-  free(icons->array);
+  if (icons->discharging != NULL) {
+    for (i = 0; i < icons->num_discharging; ++i)
+      free(icons->discharging[i]);
+    free(icons->discharging);
+  }
 
-  free(icons->charging);
-  free(icons->plugged);
+  if (icons->critical != NULL)
+    free(icons->critical);
+  if (icons->charging != NULL)
+    free(icons->charging);
+  if (icons->plugged != NULL)
+    free(icons->plugged);
 }
 
 static void battery_cleanup(void* instance_ptr) {
@@ -472,16 +520,27 @@ static void battery_cleanup(void* instance_ptr) {
   free(instance);
 }
 
-static void* battery_init(struct module_init_data* init_data) {
-  int rc;
+static void parse_icons(struct battery_icons* icons) {
   size_t i;
-  struct battery_instance* instance;
-  enum acpi_mode acpi_mode;
-  char uevent_path[sizeof(BATTERY_PATH) * 2];
 
-  instance = zalloc(sizeof(*instance));
-  ASSERT(instance != NULL);
+  config_parse_object_with_key("icons") {
+    config_parse_array_with_key("discharging") {
+      icons->num_discharging = config_get_array_length();
+      icons->discharging =
+        zalloc(icons->num_discharging
+               * sizeof(*icons->discharging));
 
+      for (i = 0; i < icons->num_discharging; ++i)
+        icons->discharging[i] = config_get_string_by_idx(i, NULL);
+    }
+
+    icons->charging = config_get_string_by_key("charging", NULL);
+    icons->plugged  = config_get_string_by_key("plugged" , NULL);
+    icons->critical = config_get_string_by_key("critical" , NULL);
+  }
+}
+
+static void parse_config(struct battery_instance* instance) {
   instance->name =
     config_get_string_by_key("name", BATTERY_DEFAULT_NAME);
   instance->format =
@@ -489,17 +548,61 @@ static void* battery_init(struct module_init_data* init_data) {
   instance->format_alt =
     config_get_string_by_key("format-alt", BATTERY_DEFAULT_FORMAT_ALT);
 
-  config_parse_array_with_key("icons") {
-    instance->icons.length = config_get_array_length();
-    instance->icons.array =
-      zalloc(instance->icons.length * sizeof(*instance->icons.array));
+  parse_icons(&instance->icons);
 
-    for (i = 0; i < instance->icons.length; ++i)
-      instance->icons.array[i] = config_get_string_by_idx(i, NULL);
+  /* Extra colors */
+  config_parse_object_with_key("colors") {
+    instance->colors.fg_charging =
+      config_get_color_by_key("charging", instance->colors.fg);
+    instance->colors.fg_low =
+      config_get_color_by_key("low", instance->colors.fg);
+    instance->colors.fg_critical =
+      config_get_color_by_key("critical", instance->colors.fg);
   }
 
-  instance->icons.charging = config_get_string_by_key("icon-charging", NULL);
-  instance->icons.plugged  = config_get_string_by_key("icon-plugged" , NULL);
+  /* Parse levels */
+  if (!config_has_key("levels")) {
+    instance->levels.critical = instance->levels.low = -1;
+    instance->levels.full = 100;
+  } else {
+    config_parse_object_with_key("levels") {
+      instance->levels.critical = config_get_int_by_key("critical", -1);
+      instance->levels.low      = config_get_int_by_key("low"     , -1);
+      instance->levels.full     = config_get_int_by_key("full"    , 100);
+
+      if (instance->levels.low >= 0
+          && instance->levels.low <= instance->levels.critical) {
+        module_error("invalid %s value! it cannot be less or equal to %s",
+                     config_get_key_path("low"),
+                     config_get_key_path("critical"));
+        instance->levels.low = instance->levels.critical = -1;
+      }
+
+      if (instance->levels.full <= instance->levels.low) {
+        module_error("invalid %s value! it cannot be less or equal to %s",
+                     config_get_key_path("full"), config_get_key_path("low"));
+        instance->levels.full = 100;
+      }
+    }
+  }
+
+}
+
+static void* battery_init(struct module_init_data* init_data) {
+  int rc;
+  struct battery_instance* instance;
+  enum acpi_mode acpi_mode;
+  char uevent_path[sizeof(BATTERY_PATH) * 2];
+
+  instance = zalloc(sizeof(*instance));
+  ASSERT(instance != NULL);
+
+  {
+    instance->colors.fg = init_data->foreground_color;
+    instance->colors.bg = init_data->background_color;
+  }
+
+  parse_config(instance);
 
   get_battery_path(uevent_path, sizeof(uevent_path), instance->name);
 
@@ -518,8 +621,6 @@ static void* battery_init(struct module_init_data* init_data) {
   reset_consumption_ring(instance);
   instance->zone = bar_alloc_zone(init_data->position, compute_width(instance));
   instance->info.mode = acpi_mode;
-  instance->fg_color = init_data->foreground_color;
-  instance->bg_color = init_data->background_color;
 
   module_trace("detected acpi %s mode", battery_mode(instance));
 
