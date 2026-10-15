@@ -30,6 +30,7 @@ LDFLAGS = $(COMFLAGS)
 ifneq ($(RELEASE),)
 LDFLAGS += \
 	-Wl,-z,relro,-z,now,-z,noexecstack \
+	-s \
 	-flto \
 	-pie
 endif
