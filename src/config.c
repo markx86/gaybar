@@ -180,15 +180,24 @@ static char* get_node_path_recursive(struct config_node* node,
 
 /* NOTE: This function is not thread safe! */
 const char* _config_get_path(const void* key, b8 is_index) {
-  static char tmp_buffer[0x200];
+  static char tmp_buffer[4][0x200];
+  static i32 tmp_index = 0;
 
   char *buffer, *buffer_end, *node_name;
+  i32 buffer_i;
+
+  /* Get next temp buffer */
+  {
+    buffer_i = tmp_index;
+    tmp_index = (tmp_index + 1) & 0b11;
+  }
 
   node_name = key_to_name(key, is_index);
   ASSERT(node_name != NULL);
 
-  buffer_end = tmp_buffer + sizeof(tmp_buffer) - 1;
-  buffer = get_node_path_recursive(g_current, tmp_buffer, buffer_end);
+  buffer = tmp_buffer[buffer_i];
+  buffer_end = buffer + sizeof(*tmp_buffer) - 1;
+  buffer = get_node_path_recursive(g_current, buffer, buffer_end);
 
   if (buffer < buffer_end)
     strncpy(buffer, node_name, buffer_end - buffer);
@@ -201,7 +210,7 @@ const char* _config_get_path(const void* key, b8 is_index) {
   *buffer_end = '\0';
   free(node_name);
 
-  return tmp_buffer;
+  return tmp_buffer[buffer_i];
 }
 
 static inline cJSON* unwrap_node(struct config_node* node) {
