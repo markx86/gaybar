@@ -30,7 +30,7 @@ struct vec2u32 {
 
 struct rendered_glyph {
   b8 owns_bitmap;
-  u32 width, height;
+  u32 width, height, pitch;
   struct vec2u32 offset, advance;
   u8* bitmap;
 };
@@ -78,11 +78,11 @@ static const char* ft_strerror(FT_Error error) {
 }
 
 static b8 render_glyph(u32 char_code, struct rendered_glyph* res, b8 copy) {
-  size_t y;
   FT_GlyphSlot glyph;
   FT_Error error;
 
-  error = FT_Load_Char(g_font.face, char_code, FT_LOAD_RENDER);
+  error = FT_Load_Char(g_font.face, char_code,
+                       FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT);
   if (error) {
     log_warn("could not load glyph for character code %#lx: %s",
              char_code, ft_strerror(error));
@@ -96,23 +96,23 @@ static b8 render_glyph(u32 char_code, struct rendered_glyph* res, b8 copy) {
 
   res->width = glyph->bitmap.width;
   res->height = glyph->bitmap.rows;
+  res->pitch = glyph->bitmap.pitch;
   res->advance.x = glyph->advance.x;
   res->advance.y = glyph->advance.y;
   res->offset.x = glyph->bitmap_left;
   res->offset.y = g_font.size_in_pixels - glyph->bitmap_top;
   res->owns_bitmap = copy;
-  if (copy) {
-    res->bitmap = malloc(res->height * res->width);
+
+  if (copy && glyph->bitmap.buffer != NULL) {
+    res->bitmap = malloc(res->height * res->pitch);
     ASSERT(res->bitmap != NULL);
-    for (y = 0; y < res->height; ++y)
-      memcpy(res->bitmap + y * res->width,
-             glyph->bitmap.buffer + y * glyph->bitmap.pitch,
-             res->width);
-  } else
+    memcpy(res->bitmap, glyph->bitmap.buffer, res->height * res->pitch);
+  } else {
     /* NOTE: If copy is not true, res->bitmap is only valid until the next
      *       call to this function.
      */
     res->bitmap = glyph->bitmap.buffer;
+  }
 
   return true;
 }
@@ -212,11 +212,29 @@ static struct vec2u32 glyph_advance(u32 char_code) {
   return advance;
 }
 
+static struct color blend_over(struct color c1, struct color c2, u8 a) {
+  const f64 gamma = 2.2, inv_gamma = 1.0 / gamma;
+  f64 alpha = a / 255.0, inv_alpha = 1.0 - alpha;
+
+#define _blend_op(v1, v2) \
+  pow(pow((v1) * alpha, gamma) + pow((v2) * inv_alpha, gamma), inv_gamma)
+
+  /* FIXME: Is there a faster approximation we can do? */
+  return (struct color) {
+    .r = (u8)(_blend_op(c1.r / 255.0, c2.r / 255.0) * 255.0),
+    .g = (u8)(_blend_op(c1.g / 255.0, c2.g / 255.0) * 255.0),
+    .b = (u8)(_blend_op(c1.b / 255.0, c2.b / 255.0) * 255.0),
+    .a = 0xFF
+  };
+
+#undef _blend_op
+}
+
 static struct vec2u32 render_colored_glyph(u32 char_code,
                                            u32 color, u32* buffer,
                                            size_t width, size_t height,
                                            size_t stride_in_px) {
-  f32 alpha, inv_alpha;
+  u8 alpha;
   u64 x, y, sx, sy;
   u64 buffer_cursor, bitmap_cursor;
   struct color c1, c2;
@@ -233,6 +251,9 @@ static struct vec2u32 render_colored_glyph(u32 char_code,
     return (struct vec2u32) { .x = PX2px(g_font.size_in_pixels), .y = 0 };
 
 skip_rendering:
+  if (glyph.bitmap == NULL)
+    goto skip_drawing;
+
   sx = glyph.offset.x;
   sy = glyph.offset.y;
 
@@ -248,23 +269,28 @@ skip_rendering:
       if (sx + x >= width)
         break;
 
-      /* Get grayscale color and map it to [0.0f, 1.0f] */
-      alpha = (f32)glyph.bitmap[bitmap_cursor + x] / 255.0f;
-      inv_alpha = 1.0f - alpha;
+      alpha = glyph.bitmap[bitmap_cursor + x];
+
+      /* Fast-path for fully-dark and fully-bright pixels */
+      if (alpha == 0x00)
+        continue;
+      else if (alpha == 0xFF) {
+        buffer[buffer_cursor + x] = c1.as_u32;
+        continue;
+      }
 
       /* Mix the font color and the background color by the alpha channel */
       c2.as_u32 = buffer[buffer_cursor + x];
-      c2.r = (c2.r * inv_alpha) + (c1.r * alpha);
-      c2.g = (c2.g * inv_alpha) + (c1.g * alpha);
-      c2.b = (c2.b * inv_alpha) + (c1.b * alpha);
+      c2 = blend_over(c1, c2, alpha);
       buffer[buffer_cursor + x] = c2.as_u32;
     }
 
     /* Advance cursors */
-    bitmap_cursor += glyph.width;
+    bitmap_cursor += glyph.pitch;
     buffer_cursor += stride_in_px;
   }
 
+skip_drawing:
   return glyph.advance;
 }
 
