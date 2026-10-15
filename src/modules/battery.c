@@ -16,8 +16,8 @@
 #define BATTERY_PATH "/sys/class/power_supply/%s/uevent"
 
 #define BATTERY_DEFAULT_NAME       "BAT1"
-#define BATTERY_DEFAULT_FORMAT     "{icon} {charge-percentage}%"
-#define BATTERY_DEFAULT_FORMAT_ALT "{icon} {time}"
+#define BATTERY_DEFAULT_FORMAT     "{charge-percentage}% {icon}"
+#define BATTERY_DEFAULT_FORMAT_ALT "{time} {icon}"
 
 #define REFRESH_INTERVAL 1.0f /* In seconds */
 
@@ -36,6 +36,7 @@ enum battery_status {
   BATTERY_STATUS_UNKNOWN,
   BATTERY_STATUS_DISCHARGING,
   BATTERY_STATUS_CHARGING,
+  BATTERY_STATUS_PLUGGED
 };
 
 struct battery_info {
@@ -55,6 +56,8 @@ struct battery_samples {
 struct battery_icons {
   char** array;
   size_t length;
+  char* charging;
+  char* plugged;
 };
 
 struct battery_instance {
@@ -104,6 +107,8 @@ static const char* battery_status(struct battery_instance* instance) {
     return "charging";
   else if (info->status == BATTERY_STATUS_DISCHARGING)
     return "discharging";
+  else if (info->status == BATTERY_STATUS_PLUGGED)
+    return "plugged";
   else
     return "(unknown)";
 }
@@ -189,6 +194,8 @@ static b8 parse_status(enum battery_status* out, const char* value) {
     parsed = BATTERY_STATUS_CHARGING;
   else if (!strcmp(value, "Discharging"))
     parsed = BATTERY_STATUS_DISCHARGING;
+  else if (!strcmp(value, "Not charging"))
+    parsed = BATTERY_STATUS_PLUGGED;
   else
     parsed = BATTERY_STATUS_UNKNOWN;
 
@@ -312,6 +319,15 @@ static void get_time_left(struct battery_instance* instance, i8* h, i8* m) {
 static const char* get_icon(struct battery_instance* instance) {
   size_t index;
   struct battery_icons* icons = &instance->icons;
+
+  if (instance->info.status == BATTERY_STATUS_CHARGING
+      && icons->charging != NULL)
+    return icons->charging;
+
+  if (instance->info.status == BATTERY_STATUS_PLUGGED
+      && icons->plugged != NULL)
+    return icons->plugged;
+
   if (icons->length == 0)
     return "?";
 
@@ -432,6 +448,9 @@ static void free_icons(struct battery_instance* instance) {
   for (i = 0; i < icons->length; ++i)
     free(icons->array[i]);
   free(icons->array);
+
+  free(icons->charging);
+  free(icons->plugged);
 }
 
 static void battery_cleanup(void* instance_ptr) {
@@ -478,6 +497,9 @@ static void* battery_init(struct module_init_data* init_data) {
     for (i = 0; i < instance->icons.length; ++i)
       instance->icons.array[i] = config_get_string_by_idx(i, NULL);
   }
+
+  instance->icons.charging = config_get_string_by_key("icon-charging", NULL);
+  instance->icons.plugged  = config_get_string_by_key("icon-plugged" , NULL);
 
   get_battery_path(uevent_path, sizeof(uevent_path), instance->name);
 
